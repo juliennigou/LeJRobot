@@ -42,6 +42,24 @@ npm run dev
 
 The Vite dev server proxies `/api/*` requests to `http://127.0.0.1:8000`.
 
+If port `8000` is already used on your machine, you can run the backend on another port and point Vite at it:
+
+```bash
+cd backend
+uvicorn app.main:app --reload --port 8001
+```
+
+```bash
+cd frontend
+VITE_API_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
+```
+
+The launcher supports the same override:
+
+```bash
+APP_BACKEND_PORT=8001 ./run_app.sh
+```
+
 ## Music Search
 
 The app now supports song search through Jamendo's API.
