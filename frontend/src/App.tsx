@@ -1,46 +1,23 @@
 import { startTransition, useEffect, useState } from "react";
 import {
   Activity,
-  Cpu,
+  BarChart3,
+  Clock3,
   Disc3,
-  Gauge,
   Music2,
-  Radio,
+  Pause,
+  Play,
   Search,
   Sparkles,
   Waves,
-  Zap,
 } from "lucide-react";
-import { fetchConfig, fetchState, pulseDance, searchTracks, selectTrack, setMode, setTransport, triggerScene, updateServo } from "@/lib/api";
-import type { DanceMode, RobotConfig, RobotState, SceneName, TrackSummary } from "@/lib/types";
+import { fetchState, searchTracks, selectTrack, setTransport } from "@/lib/api";
+import type { RobotState, TrackSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-const tracks = [
-  { name: "Neon Pulse", bpm: 124, energy: 0.78 },
-  { name: "Atlas Groove", bpm: 98, energy: 0.58 },
-  { name: "Signal Breaks", bpm: 138, energy: 0.9 },
-];
-
-const scenes: { name: SceneName; title: string; note: string }[] = [
-  { name: "idle", title: "Stillness", note: "Centered pose for calibration and safety." },
-  { name: "bloom", title: "Bloom", note: "Open shoulders with smooth wrist movement." },
-  { name: "punch", title: "Punch", note: "Tighter accents for higher-energy tracks." },
-  { name: "sweep", title: "Sweep", note: "Long arcs across the full arm chain." },
-];
-
-const modeLabels: { value: DanceMode; title: string }[] = [
-  { value: "idle", title: "Idle" },
-  { value: "manual", title: "Manual" },
-  { value: "autonomous", title: "Auto" },
-  { value: "pulse", title: "Pulse" },
-];
 
 function formatDuration(durationSeconds?: number | null) {
   if (!durationSeconds) {
@@ -53,14 +30,8 @@ function formatDuration(durationSeconds?: number | null) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function formatAngle(angle: number) {
-  return `${angle >= 0 ? "+" : ""}${angle.toFixed(0)}°`;
-}
-
 function App() {
-  const [config, setConfig] = useState<RobotConfig | null>(null);
   const [state, setState] = useState<RobotState | null>(null);
-  const [drafts, setDrafts] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("electro swing");
@@ -68,61 +39,17 @@ function App() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const refresh = async () => {
+  const refreshState = async () => {
     try {
       const next = await fetchState();
       startTransition(() => {
         setState(next);
-        setDrafts(Object.fromEntries(next.servos.map((servo) => [servo.id, servo.target_angle])));
       });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to reach backend");
     } finally {
       setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    const boot = async () => {
-      try {
-        const [cfg, robot] = await Promise.all([fetchConfig(), fetchState()]);
-        startTransition(() => {
-          setConfig(cfg);
-          setState(robot);
-          setDrafts(Object.fromEntries(robot.servos.map((servo) => [servo.id, servo.target_angle])));
-        });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to initialize console");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void boot();
-    const interval = window.setInterval(() => {
-      void refresh();
-    }, 1400);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const totalLoad = state
-    ? state.servos.reduce((sum, servo) => sum + servo.load_pct, 0) / state.servos.length
-    : 0;
-
-  const activeTrack = state?.transport.track_name || tracks[0].name;
-
-  const commitAction = async (action: () => Promise<RobotState>) => {
-    try {
-      const next = await action();
-      startTransition(() => {
-        setState(next);
-        setDrafts(Object.fromEntries(next.servos.map((servo) => [servo.id, servo.target_angle])));
-      });
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Action failed");
     }
   };
 
@@ -149,406 +76,330 @@ function App() {
     }
   };
 
-  const currentTrack = state?.transport.current_track;
+  const commitAction = async (action: () => Promise<RobotState>) => {
+    try {
+      const next = await action();
+      startTransition(() => {
+        setState(next);
+      });
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action failed");
+    }
+  };
+
+  useEffect(() => {
+    const boot = async () => {
+      await Promise.all([refreshState(), runSearch(searchQuery)]);
+    };
+
+    void boot();
+    const interval = window.setInterval(() => {
+      void refreshState();
+    }, 1400);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const currentTrack = state?.transport.current_track ?? null;
+  const activeTrackLabel = currentTrack
+    ? `${currentTrack.title} - ${currentTrack.artist}`
+    : "No song selected";
+  const spectrum = state?.spectrum ?? Array.from({ length: 24 }, (_, index) => 28 + ((index * 7) % 46));
+  const bpm = state?.transport.bpm ?? 120;
+  const energy = state?.transport.energy ?? 0.5;
+  const positionSeconds = state?.transport.position_seconds ?? 0;
 
   return (
-    <main className="relative overflow-hidden px-4 py-6 sm:px-6 lg:px-10">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <Card className="overflow-hidden">
-          <CardContent className="relative grid gap-8 p-8 lg:grid-cols-[1.4fr_0.8fr]">
-            <div className="absolute inset-y-0 right-0 hidden w-2/5 bg-[radial-gradient(circle_at_top,rgba(72,187,255,0.22),transparent_55%)] lg:block" />
-            <div className="relative flex flex-col gap-6">
+    <main className="relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 lg:px-10">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(82,170,255,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(188,229,255,0.14),transparent_28%),linear-gradient(180deg,rgba(4,10,20,0.45),rgba(4,10,20,0.8))]" />
+      <div className="relative mx-auto flex max-w-7xl flex-col gap-6">
+        <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <Card className="overflow-hidden border-white/10 bg-white/[0.04]">
+            <CardContent className="p-8">
               <div className="flex flex-wrap items-center gap-3">
-                <Badge>Music-Led Motion</Badge>
-                <Badge variant="muted">{config?.assembly ?? "Follower"} Assembly</Badge>
-                <Badge variant="accent">{state?.connected ? "Hardware Ready" : "Waiting for Bus"}</Badge>
+                <Badge>Music Search</Badge>
+                <Badge variant="muted">Song-First Interface</Badge>
+                <Badge variant="accent">{state?.transport.playing ? "Transport Live" : "Waiting on Selection"}</Badge>
               </div>
-              <div className="max-w-3xl space-y-4">
-                <p className="hud-label">LeRobot Motion Console</p>
+
+              <div className="mt-6 max-w-3xl space-y-4">
+                <p className="hud-label">LeRobot Music Console</p>
                 <h1 className="text-4xl font-bold leading-tight text-white sm:text-5xl">
-                  A control surface for making your SO-101 follower arm move like it can hear the room.
+                  Find a song, inspect its motion profile, and shape the soundtrack before the robots ever move.
                 </h1>
                 <p className="max-w-2xl text-base text-slate-300 sm:text-lg">
-                  This first version focuses on a strong UI layer and a simple Python state engine. It already
-                  knows your follower port, servo chain, and dance scenes, and it is shaped so we can attach real
-                  LeRobot commands next.
+                  This version is intentionally music-first. Search the catalog, pick a track, preview it, and read
+                  the BPM, energy, and spectrum interface that will drive the choreography layer later.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <Button onClick={() => void commitAction(() => pulseDance({ bpm: state?.transport.bpm ?? 124, energy: 0.82 }))}>
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Fire Pulse Routine
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    void commitAction(() =>
-                      setTransport({ track_name: tracks[0].name, bpm: tracks[0].bpm, energy: tracks[0].energy, playing: true }),
-                    )
-                  }
-                >
-                  <Disc3 className="mr-2 h-4 w-4" />
-                  Start Demo Track
-                </Button>
-              </div>
-            </div>
 
-            <div className="relative grid gap-4">
-              <div className="glass-panel rounded-[28px] p-5">
-                <p className="hud-label mb-3">Live Spectrum</p>
-                <div className="flex h-36 items-end gap-2">
-                  {(state?.spectrum ?? Array.from({ length: 18 }, () => 28)).map((value, index) => (
-                    <div
-                      key={`${value}-${index}`}
-                      className="animate-pulse-grid rounded-full bg-gradient-to-t from-secondary via-accent to-primary"
-                      style={{
-                        height: `${Math.max(18, value)}%`,
-                        width: "100%",
-                        animationDelay: `${index * 80}ms`,
-                      }}
-                    />
-                  ))}
+              <form
+                className="mt-8 flex flex-col gap-3 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void runSearch(searchQuery);
+                }}
+              >
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Search by song, artist, or mood"
+                    className="h-13 w-full rounded-full border border-white/10 bg-black/30 pl-11 pr-5 text-sm text-white outline-none ring-0 placeholder:text-slate-500 focus:border-primary/60"
+                  />
                 </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <MetricCard label="Sync Quality" value={`${state?.sync_quality ?? 0}%`} icon={Radio} />
-                <MetricCard label="Latency" value={`${state?.latency_ms ?? 0} ms`} icon={Activity} />
-                <MetricCard label="Group Load" value={`${totalLoad.toFixed(0)}%`} icon={Gauge} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                <Button type="submit" size="lg" disabled={searching}>
+                  {searching ? "Searching..." : "Search Songs"}
+                </Button>
+              </form>
 
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_1.2fr_0.9fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Playback + Modes</CardTitle>
-              <CardDescription>Use track energy and mode switches to drive the state machine.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="hud-label mb-2">Now Selected</p>
-                    <p className="text-2xl font-semibold text-white">{activeTrack}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {state?.transport.bpm ?? tracks[0].bpm} BPM • energy {(state?.transport.energy ?? tracks[0].energy).toFixed(2)}
-                    </p>
-                    {currentTrack ? (
-                      <p className="mt-1 text-sm text-slate-400">
-                        Source {currentTrack.source} • {formatDuration(currentTrack.duration_seconds)}
-                      </p>
-                    ) : null}
+              {searchError ? (
+                <div className="mt-4 rounded-[20px] border border-destructive/30 bg-destructive/10 p-3 text-sm text-red-200">
+                  {searchError}
+                </div>
+              ) : null}
+
+              <div className="mt-6 grid gap-3">
+                {searchResults.map((track) => (
+                  <button
+                    key={`${track.source}-${track.track_id}`}
+                    className="group rounded-[26px] border border-white/10 bg-black/25 p-5 text-left transition hover:border-primary/40 hover:bg-white/[0.06]"
+                    onClick={() => void commitAction(() => selectTrack(track, true))}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                            <Music2 className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-lg font-semibold text-white">{track.title}</p>
+                            <p className="truncate text-sm text-slate-400">{track.artist}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <span className="whitespace-nowrap text-sm text-slate-400">{formatDuration(track.duration_seconds)}</span>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <TrackChip label="BPM" value={`${track.motion_profile.bpm}`} />
+                      <TrackChip label="Energy" value={track.motion_profile.energy.toFixed(2)} />
+                      <TrackChip label="Pattern" value={track.motion_profile.pattern_bias} />
+                    </div>
+                  </button>
+                ))}
+
+                {!searchResults.length && !searching ? (
+                  <div className="rounded-[24px] border border-dashed border-white/10 bg-black/20 p-5 text-sm text-slate-400">
+                    Search Jamendo and select a track to populate the music console.
                   </div>
-                  <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden border-white/10 bg-white/[0.04]">
+            <CardContent className="flex h-full flex-col justify-between p-8">
+              <div>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="hud-label">Selected Song</p>
+                    <h2 className="mt-3 text-3xl font-semibold text-white">{activeTrackLabel}</h2>
+                    <p className="mt-2 text-sm text-slate-400">
+                      {currentTrack
+                        ? `Source ${currentTrack.source} • ${formatDuration(currentTrack.duration_seconds)}`
+                        : "Choose a song from the search results to load the music dashboard."}
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-slate-300">
                     {state?.transport.playing ? "Playing" : "Paused"}
                   </div>
                 </div>
-                <div className="mt-4 flex gap-3">
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      void commitAction(() =>
-                        setTransport({
-                          track_name: state?.transport.track_name ?? tracks[0].name,
-                          bpm: state?.transport.bpm ?? tracks[0].bpm,
-                          energy: state?.transport.energy ?? tracks[0].energy,
-                          playing: !state?.transport.playing,
-                        }),
-                      )
-                    }
-                  >
-                    {state?.transport.playing ? "Pause Motion" : "Resume Motion"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void commitAction(() => setMode("idle"))}
-                  >
-                    Safe Idle
-                  </Button>
-                </div>
-              </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="hud-label">Open Catalog Search</p>
-                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">
-                    Jamendo
-                  </div>
+                <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                  <StatCard label="BPM" value={`${bpm}`} icon={Disc3} />
+                  <StatCard label="Energy" value={energy.toFixed(2)} icon={Sparkles} />
+                  <StatCard label="Position" value={`${positionSeconds.toFixed(1)}s`} icon={Clock3} />
                 </div>
-                <form
-                  className="flex gap-3"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void runSearch(searchQuery);
-                  }}
-                >
-                  <div className="relative flex-1">
-                    <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Search track, artist, or vibe"
-                      className="h-11 w-full rounded-full border border-white/10 bg-white/5 pl-11 pr-4 text-sm text-white outline-none ring-0 placeholder:text-slate-500 focus:border-primary/40"
-                    />
-                  </div>
-                  <Button type="submit" variant="secondary" disabled={searching}>
-                    {searching ? "Searching..." : "Search"}
-                  </Button>
-                </form>
-                {searchError ? (
-                  <div className="rounded-[20px] border border-destructive/30 bg-destructive/10 p-3 text-sm text-red-200">
-                    {searchError}
-                  </div>
-                ) : null}
-                <div className="grid gap-3">
-                  {searchResults.map((track) => (
-                    <button
-                      key={`${track.source}-${track.track_id}`}
-                      className="rounded-[22px] border border-white/10 bg-white/5 p-4 text-left transition hover:border-primary/40 hover:bg-white/10"
-                      onClick={() => void commitAction(() => selectTrack(track, true))}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Music2 className="h-4 w-4 text-accent" />
-                            <span className="text-lg font-medium">{track.title}</span>
-                          </div>
-                          <p className="mt-1 text-sm text-muted-foreground">{track.artist}</p>
-                        </div>
-                        <span className="text-sm text-muted-foreground">{formatDuration(track.duration_seconds)}</span>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                        <StatusPill label="Motion BPM" value={`${track.motion_profile.bpm}`} />
-                        <StatusPill label="Energy" value={track.motion_profile.energy.toFixed(2)} />
-                      </div>
-                    </button>
-                  ))}
-                  {!searchResults.length && !searching ? (
-                    <div className="rounded-[22px] border border-dashed border-white/10 bg-white/5 p-4 text-sm text-muted-foreground">
-                      Search Jamendo for a song and select it to drive the dance state.
+
+                <div className="mt-8 rounded-[28px] border border-white/10 bg-black/25 p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="hud-label">Transport</p>
+                      <p className="mt-2 text-lg font-medium text-white">
+                        {currentTrack ? "Preview and inspect the song before robot integration." : "No preview loaded"}
+                      </p>
                     </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <Separator />
-
-              {currentTrack?.audio_url ? (
-                <div className="space-y-3">
-                  <p className="hud-label">Audio Preview</p>
-                  <audio
-                    controls
-                    preload="none"
-                    src={currentTrack.audio_url}
-                    className="w-full opacity-90"
-                  />
-                </div>
-              ) : null}
-
-              <Separator />
-
-              <div className="space-y-3">
-                <p className="hud-label">Quick Demo Tracks</p>
-                <div className="grid gap-3">
-                  {tracks.map((track) => (
-                    <button
-                      key={track.name}
-                      className="rounded-[22px] border border-white/10 bg-white/5 p-4 text-left transition hover:border-primary/40 hover:bg-white/10"
-                      onClick={() =>
-                        void commitAction(() =>
-                          setTransport({
-                            track_name: track.name,
-                            bpm: track.bpm,
-                            energy: track.energy,
-                            playing: true,
-                          }),
-                        )
-                      }
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-lg font-medium">{track.name}</span>
-                        <span className="text-sm text-muted-foreground">{track.bpm} BPM</span>
-                      </div>
-                      <div className="mt-3">
-                        <Progress value={track.energy * 100} />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <p className="hud-label">Motion Modes</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {modeLabels.map((mode) => (
                     <Button
-                      key={mode.value}
-                      variant={state?.mode === mode.value ? "default" : "secondary"}
-                      onClick={() => void commitAction(() => setMode(mode.value))}
+                      variant="secondary"
+                      onClick={() =>
+                        currentTrack
+                          ? void commitAction(() =>
+                              setTransport({
+                                track_name: state?.transport.track_name ?? `${currentTrack.title} - ${currentTrack.artist}`,
+                                bpm,
+                                energy,
+                                playing: !state?.transport.playing,
+                              }),
+                            )
+                          : undefined
+                      }
+                      disabled={!currentTrack}
                     >
-                      {mode.title}
+                      {state?.transport.playing ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
+                      {state?.transport.playing ? "Pause" : "Play"}
                     </Button>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                  </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Servo Choreography</CardTitle>
-              <CardDescription>
-                Tune target angles per joint. The backend keeps these values in a safe mock state store for now.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="servos">
-                <TabsList>
-                  <TabsTrigger value="servos">Servos</TabsTrigger>
-                  <TabsTrigger value="scenes">Scenes</TabsTrigger>
-                </TabsList>
-                <TabsContent value="servos" className="space-y-4">
-                  {(state?.servos ?? []).map((servo) => (
-                    <div key={servo.id} className="rounded-[24px] border border-white/10 bg-white/5 p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-lg font-medium capitalize text-white">
-                            {servo.name.replace(/_/g, " ")}
-                          </p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            Current {formatAngle(servo.angle)} • target {formatAngle(drafts[servo.id] ?? servo.target_angle)}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Torque</span>
-                          <Switch
-                            checked={servo.torque_enabled}
-                            onCheckedChange={(checked) =>
-                              void commitAction(() => updateServo(servo.id, { torque_enabled: checked }))
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-5 space-y-4">
-                        <Slider
-                          value={[drafts[servo.id] ?? servo.target_angle]}
-                          min={-140}
-                          max={140}
-                          step={1}
-                          onValueChange={([value]) =>
-                            setDrafts((current) => ({
-                              ...current,
-                              [servo.id]: value,
-                            }))
-                          }
-                          onValueCommit={([value]) =>
-                            void commitAction(() => updateServo(servo.id, { target_angle: value }))
-                          }
-                        />
-                        <div className="grid grid-cols-3 gap-3 text-sm">
-                          <StatusPill label="Load" value={`${servo.load_pct.toFixed(0)}%`} />
-                          <StatusPill label="Temp" value={`${servo.temperature_c.toFixed(1)}°C`} />
-                          <StatusPill label="Phase" value={servo.motion_phase} />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </TabsContent>
-                <TabsContent value="scenes" className="space-y-4">
-                  {scenes.map((scene) => (
-                    <button
-                      key={scene.name}
-                      className="w-full rounded-[24px] border border-white/10 bg-white/5 p-5 text-left transition hover:border-accent/40 hover:bg-white/10"
-                      onClick={() => void commitAction(() => triggerScene(scene.name))}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-xl font-semibold">{scene.title}</span>
-                        <Waves className="h-5 w-5 text-accent" />
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">{scene.note}</p>
-                    </button>
-                  ))}
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Robot Context</CardTitle>
-              <CardDescription>Live config read from your local LeRobot setup file.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="rounded-[24px] bg-gradient-to-br from-white/10 to-white/5 p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/20">
-                    <Cpu className="h-6 w-6 text-primary" />
-                  </div>
-                  <div>
-                    <p className="hud-label">Follower Arm</p>
-                    <p className="text-lg font-semibold">{config?.follower_id ?? "Unknown"}</p>
-                  </div>
+                  {currentTrack?.audio_url ? (
+                    <audio controls preload="none" src={currentTrack.audio_url} className="mt-5 w-full opacity-90" />
+                  ) : (
+                    <p className="mt-5 text-sm text-slate-400">
+                      The selected track has no preview URL yet, but its motion profile is still available.
+                    </p>
+                  )}
                 </div>
-                <div className="mt-5 space-y-3 text-sm text-slate-300">
-                  <div className="flex justify-between gap-4">
-                    <span>Port</span>
-                    <span>{config?.follower_port ?? state?.follower_port ?? "Unavailable"}</span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span>Safety Step</span>
-                    <span>{config?.safety_step_ticks ?? state?.safety_step_ticks ?? 0} ticks</span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span>Status</span>
-                    <span>{state?.status ?? "booting"}</span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span>Last Sync</span>
-                    <span>{state ? new Date(state.last_sync).toLocaleTimeString() : "--"}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
-                <p className="hud-label mb-3">Readiness</p>
-                <Progress value={state?.sync_quality ?? 0} />
-                <p className="mt-3 text-sm text-muted-foreground">
-                  The current motion profile is still estimated from the selected song metadata. The next step is
-                  real audio analysis so beat timing and sections drive both arms precisely.
-                </p>
-              </div>
-
-              <div className="rounded-[24px] border border-primary/20 bg-primary/10 p-5 text-sm text-primary-foreground">
-                <div className="flex items-center gap-3 text-white">
-                  <Zap className="h-5 w-5 text-primary" />
-                  <span className="font-semibold">Backend note</span>
-                </div>
-                <p className="mt-2 text-slate-200">
-                  The API now also exposes Jamendo-backed song search and track selection, which is the entry point
-                  for the choreography pipeline.
-                </p>
               </div>
 
               {error ? (
-                <div className="rounded-[20px] border border-destructive/30 bg-destructive/10 p-4 text-sm text-red-200">
+                <div className="mt-6 rounded-[20px] border border-destructive/30 bg-destructive/10 p-4 text-sm text-red-200">
                   {error}
                 </div>
               ) : null}
-
-              {loading ? <p className="text-sm text-muted-foreground">Loading robot state…</p> : null}
             </CardContent>
           </Card>
-        </div>
+        </section>
+
+        <Card className="border-white/10 bg-white/[0.04]">
+          <CardHeader>
+            <CardTitle>Track Analysis</CardTitle>
+            <CardDescription>
+              Music-facing tabs only. This is where the interface should stay clean before the robot layer comes in.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="spectrum">
+              <TabsList>
+                <TabsTrigger value="spectrum">Spectrum</TabsTrigger>
+                <TabsTrigger value="metrics">BPM + Energy</TabsTrigger>
+                <TabsTrigger value="details">Track Details</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="spectrum" className="pt-6">
+                <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="hud-label">Live Spectrum</p>
+                      <p className="mt-2 text-lg text-slate-300">
+                        Visual energy bands from the current motion state.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                      <Waves className="h-4 w-4 text-primary" />
+                      {spectrum.length} bands
+                    </div>
+                  </div>
+
+                  <div className="mt-8 flex h-72 items-end gap-2 rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,32,0.82),rgba(4,9,18,0.95))] px-5 py-6">
+                    {spectrum.map((value, index) => (
+                      <div
+                        key={`${value}-${index}`}
+                        className="animate-pulse-grid rounded-full bg-gradient-to-t from-primary/80 via-blue-300 to-white"
+                        style={{
+                          height: `${Math.max(12, value)}%`,
+                          width: "100%",
+                          animationDelay: `${index * 55}ms`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="metrics" className="pt-6">
+                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+                  <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
+                    <p className="hud-label">Motion Readout</p>
+                    <div className="mt-6 grid gap-4">
+                      <MetricRow label="Estimated BPM" value={`${bpm}`} progress={Math.min(100, (bpm / 180) * 100)} />
+                      <MetricRow label="Energy Level" value={energy.toFixed(2)} progress={energy * 100} />
+                      <MetricRow
+                        label="Signal Confidence"
+                        value={`${state?.sync_quality ?? 0}%`}
+                        progress={state?.sync_quality ?? 0}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
+                    <p className="hud-label">Interface Notes</p>
+                    <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                      <InfoTile
+                        icon={Activity}
+                        title="Music First"
+                        text="The UI now leads with discovery and analysis instead of direct robot controls."
+                      />
+                      <InfoTile
+                        icon={BarChart3}
+                        title="Readable Signals"
+                        text="BPM, energy, and spectrum are presented as the primary motion inputs."
+                      />
+                      <InfoTile
+                        icon={Music2}
+                        title="Robot Next"
+                        text="Once this layer feels right, we can attach both arms to the music engine."
+                      />
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="details" className="pt-6">
+                <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
+                  <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
+                    <p className="hud-label">Track Metadata</p>
+                    <div className="mt-6 space-y-4 text-sm text-slate-300">
+                      <MetadataRow label="Title" value={currentTrack?.title ?? "No track selected"} />
+                      <MetadataRow label="Artist" value={currentTrack?.artist ?? "No track selected"} />
+                      <MetadataRow label="Duration" value={formatDuration(currentTrack?.duration_seconds)} />
+                      <MetadataRow label="Source" value={currentTrack?.source ?? "jamendo"} />
+                      <MetadataRow label="Pattern Bias" value={currentTrack?.motion_profile.pattern_bias ?? "groove"} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
+                    <p className="hud-label">Selection Status</p>
+                    <div className="mt-6 space-y-4">
+                      <StatusBanner
+                        title={loading ? "Loading backend state" : "Music interface online"}
+                        note={
+                          loading
+                            ? "Fetching transport and song state."
+                            : "Search, select, preview, and inspect tracks before robot hookup."
+                        }
+                      />
+                      <StatusBanner
+                        title={currentTrack ? "Track selected" : "No track selected"}
+                        note={
+                          currentTrack
+                            ? `${currentTrack.title} is ready to drive the next choreography pass.`
+                            : "Pick a track from the search results to populate this panel."
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
 }
 
-function MetricCard({
+function StatCard({
   label,
   value,
   icon: Icon,
@@ -558,21 +409,71 @@ function MetricCard({
   icon: typeof Activity;
 }) {
   return (
-    <div className="glass-panel rounded-[24px] p-4">
-      <div className="flex items-center justify-between">
+    <div className="rounded-[24px] border border-white/10 bg-black/25 p-4">
+      <div className="flex items-center justify-between gap-3">
         <p className="hud-label">{label}</p>
-        <Icon className="h-4 w-4 text-muted-foreground" />
+        <Icon className="h-4 w-4 text-primary" />
       </div>
       <p className="mt-4 text-2xl font-semibold text-white">{value}</p>
     </div>
   );
 }
 
-function StatusPill({ label, value }: { label: string; value: string }) {
+function TrackChip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2">
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
       <p className="hud-label mb-1">{label}</p>
-      <p className="text-sm font-medium text-white">{value}</p>
+      <p className="truncate text-sm font-medium capitalize text-white">{value}</p>
+    </div>
+  );
+}
+
+function MetricRow({ label, value, progress }: { label: string; value: string; progress: number }) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-slate-300">{label}</span>
+        <span className="text-sm font-medium text-white">{value}</span>
+      </div>
+      <Progress className="mt-4" value={progress} />
+    </div>
+  );
+}
+
+function InfoTile({
+  icon: Icon,
+  title,
+  text,
+}: {
+  icon: typeof Activity;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+        <Icon className="h-4 w-4" />
+      </div>
+      <p className="mt-4 text-base font-semibold text-white">{title}</p>
+      <p className="mt-2 text-sm text-slate-400">{text}</p>
+    </div>
+  );
+}
+
+function MetadataRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3">
+      <span className="text-slate-400">{label}</span>
+      <span className="text-right text-white">{value}</span>
+    </div>
+  );
+}
+
+function StatusBanner({ title, note }: { title: string; note: string }) {
+  return (
+    <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-base font-semibold text-white">{title}</p>
+      <p className="mt-2 text-sm text-slate-400">{note}</p>
     </div>
   );
 }

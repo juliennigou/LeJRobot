@@ -6,25 +6,25 @@
 
 @layer base {
   :root {
-    --background: 210 63% 8%;
-    --foreground: 205 70% 96%;
-    --card: 212 44% 11%;
-    --card-foreground: 205 70% 96%;
-    --popover: 212 44% 11%;
-    --popover-foreground: 205 70% 96%;
-    --primary: 18 88% 59%;
-    --primary-foreground: 210 63% 8%;
-    --secondary: 196 69% 44%;
-    --secondary-foreground: 205 70% 96%;
-    --muted: 212 30% 18%;
-    --muted-foreground: 206 28% 75%;
-    --accent: 157 70% 44%;
-    --accent-foreground: 210 63% 8%;
+    --background: 220 42% 7%;
+    --foreground: 210 40% 98%;
+    --card: 221 42% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 221 42% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 206 100% 61%;
+    --primary-foreground: 220 42% 7%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 25% 16%;
+    --muted-foreground: 215 20% 74%;
+    --accent: 203 92% 88%;
+    --accent-foreground: 220 42% 7%;
     --destructive: 0 75% 58%;
-    --destructive-foreground: 205 70% 96%;
-    --border: 212 25% 23%;
-    --input: 212 25% 23%;
-    --ring: 18 88% 59%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 26% 22%;
+    --input: 217 26% 22%;
+    --ring: 206 100% 61%;
     --radius: 1.25rem;
   }
 
@@ -36,15 +36,16 @@
     @apply min-h-screen bg-background text-foreground antialiased;
     font-family: "Space Grotesk", sans-serif;
     background-image:
-      radial-gradient(circle at 20% 20%, rgba(255, 132, 66, 0.18), transparent 24%),
-      radial-gradient(circle at 80% 10%, rgba(22, 163, 201, 0.18), transparent 22%),
-      linear-gradient(180deg, rgba(6, 18, 33, 0.96), rgba(5, 15, 24, 1));
+      radial-gradient(circle at 18% 14%, rgba(82, 170, 255, 0.24), transparent 24%),
+      radial-gradient(circle at 82% 10%, rgba(210, 236, 255, 0.14), transparent 20%),
+      radial-gradient(circle at 50% 100%, rgba(34, 120, 214, 0.14), transparent 28%),
+      linear-gradient(180deg, rgba(5, 9, 18, 0.98), rgba(3, 7, 14, 1));
   }
 }
 
 @layer components {
   .glass-panel {
-    @apply border border-white/10 bg-white/5 backdrop-blur-xl;
+    @apply border border-white/10 bg-white/[0.05] backdrop-blur-xl;
   }
 
   .hud-label {
