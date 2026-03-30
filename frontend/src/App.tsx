@@ -4,13 +4,15 @@ import {
   Cpu,
   Disc3,
   Gauge,
+  Music2,
   Radio,
+  Search,
   Sparkles,
   Waves,
   Zap,
 } from "lucide-react";
-import { fetchConfig, fetchState, pulseDance, setMode, setTransport, triggerScene, updateServo } from "@/lib/api";
-import type { DanceMode, RobotConfig, RobotState, SceneName } from "@/lib/types";
+import { fetchConfig, fetchState, pulseDance, searchTracks, selectTrack, setMode, setTransport, triggerScene, updateServo } from "@/lib/api";
+import type { DanceMode, RobotConfig, RobotState, SceneName, TrackSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +42,17 @@ const modeLabels: { value: DanceMode; title: string }[] = [
   { value: "pulse", title: "Pulse" },
 ];
 
+function formatDuration(durationSeconds?: number | null) {
+  if (!durationSeconds) {
+    return "--:--";
+  }
+
+  const totalSeconds = Math.round(durationSeconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function formatAngle(angle: number) {
   return `${angle >= 0 ? "+" : ""}${angle.toFixed(0)}°`;
 }
@@ -50,6 +63,10 @@ function App() {
   const [drafts, setDrafts] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("electro swing");
+  const [searchResults, setSearchResults] = useState<TrackSummary[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -108,6 +125,31 @@ function App() {
       setError(err instanceof Error ? err.message : "Action failed");
     }
   };
+
+  const runSearch = async (query: string) => {
+    const normalized = query.trim();
+    if (!normalized) {
+      setSearchResults([]);
+      setSearchError("Enter a song, artist, or mood.");
+      return;
+    }
+
+    setSearching(true);
+    setSearchError(null);
+
+    try {
+      const response = await searchTracks(normalized);
+      startTransition(() => {
+        setSearchResults(response.results);
+      });
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const currentTrack = state?.transport.current_track;
 
   return (
     <main className="relative overflow-hidden px-4 py-6 sm:px-6 lg:px-10">
@@ -192,6 +234,11 @@ function App() {
                     <p className="mt-1 text-sm text-muted-foreground">
                       {state?.transport.bpm ?? tracks[0].bpm} BPM • energy {(state?.transport.energy ?? tracks[0].energy).toFixed(2)}
                     </p>
+                    {currentTrack ? (
+                      <p className="mt-1 text-sm text-slate-400">
+                        Source {currentTrack.source} • {formatDuration(currentTrack.duration_seconds)}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
                     {state?.transport.playing ? "Playing" : "Paused"}
@@ -224,7 +271,86 @@ function App() {
               </div>
 
               <div className="space-y-3">
-                <p className="hud-label">Track Presets</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="hud-label">Open Catalog Search</p>
+                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">
+                    Jamendo
+                  </div>
+                </div>
+                <form
+                  className="flex gap-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void runSearch(searchQuery);
+                  }}
+                >
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search track, artist, or vibe"
+                      className="h-11 w-full rounded-full border border-white/10 bg-white/5 pl-11 pr-4 text-sm text-white outline-none ring-0 placeholder:text-slate-500 focus:border-primary/40"
+                    />
+                  </div>
+                  <Button type="submit" variant="secondary" disabled={searching}>
+                    {searching ? "Searching..." : "Search"}
+                  </Button>
+                </form>
+                {searchError ? (
+                  <div className="rounded-[20px] border border-destructive/30 bg-destructive/10 p-3 text-sm text-red-200">
+                    {searchError}
+                  </div>
+                ) : null}
+                <div className="grid gap-3">
+                  {searchResults.map((track) => (
+                    <button
+                      key={`${track.source}-${track.track_id}`}
+                      className="rounded-[22px] border border-white/10 bg-white/5 p-4 text-left transition hover:border-primary/40 hover:bg-white/10"
+                      onClick={() => void commitAction(() => selectTrack(track, true))}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Music2 className="h-4 w-4 text-accent" />
+                            <span className="text-lg font-medium">{track.title}</span>
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">{track.artist}</p>
+                        </div>
+                        <span className="text-sm text-muted-foreground">{formatDuration(track.duration_seconds)}</span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                        <StatusPill label="Motion BPM" value={`${track.motion_profile.bpm}`} />
+                        <StatusPill label="Energy" value={track.motion_profile.energy.toFixed(2)} />
+                      </div>
+                    </button>
+                  ))}
+                  {!searchResults.length && !searching ? (
+                    <div className="rounded-[22px] border border-dashed border-white/10 bg-white/5 p-4 text-sm text-muted-foreground">
+                      Search Jamendo for a song and select it to drive the dance state.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <Separator />
+
+              {currentTrack?.audio_url ? (
+                <div className="space-y-3">
+                  <p className="hud-label">Audio Preview</p>
+                  <audio
+                    controls
+                    preload="none"
+                    src={currentTrack.audio_url}
+                    className="w-full opacity-90"
+                  />
+                </div>
+              ) : null}
+
+              <Separator />
+
+              <div className="space-y-3">
+                <p className="hud-label">Quick Demo Tracks</p>
                 <div className="grid gap-3">
                   {tracks.map((track) => (
                     <button
@@ -291,7 +417,7 @@ function App() {
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <p className="text-lg font-medium capitalize text-white">
-                            {servo.name.replaceAll("_", " ")}
+                            {servo.name.replace(/_/g, " ")}
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             Current {formatAngle(servo.angle)} • target {formatAngle(drafts[servo.id] ?? servo.target_angle)}
@@ -391,8 +517,8 @@ function App() {
                 <p className="hud-label mb-3">Readiness</p>
                 <Progress value={state?.sync_quality ?? 0} />
                 <p className="mt-3 text-sm text-muted-foreground">
-                  This backend currently simulates safe motion state while keeping your actual device metadata in
-                  view. The next step is replacing the mock motion engine with direct Feetech / LeRobot commands.
+                  The current motion profile is still estimated from the selected song metadata. The next step is
+                  real audio analysis so beat timing and sections drive both arms precisely.
                 </p>
               </div>
 
@@ -402,8 +528,8 @@ function App() {
                   <span className="font-semibold">Backend note</span>
                 </div>
                 <p className="mt-2 text-slate-200">
-                  The API already exposes transport, scene, mode, and per-servo update routes. That makes the UI
-                  stable while we build the real robot adapter.
+                  The API now also exposes Jamendo-backed song search and track selection, which is the entry point
+                  for the choreography pipeline.
                 </p>
               </div>
 

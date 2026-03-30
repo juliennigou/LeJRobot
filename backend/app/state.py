@@ -15,6 +15,7 @@ from .models import (
     SceneName,
     ServoState,
     ServoUpdate,
+    TrackSelection,
     TransportState,
     TransportUpdate,
 )
@@ -103,7 +104,7 @@ class RobotStateStore:
             ServoRuntime(id=servo_id, name=name, angle=0.0, target_angle=0.0)
             for servo_id, name in SERVO_LAYOUT
         ]
-        self.apply_scene(SceneName.IDLE)
+        self._set_scene_targets(SceneName.IDLE)
 
     def _load_config(self) -> RobotConfig:
         if not SETUP_PATH.exists():
@@ -147,6 +148,12 @@ class RobotStateStore:
 
         self.latency_ms = 12 + int((math.sin(beat_phase) + 1) * 7)
         self.sync_quality = max(72, 99 - int(self.transport.energy * 8) - int(abs(math.cos(beat_phase)) * 6))
+
+    def _set_scene_targets(self, scene: SceneName) -> None:
+        self.scene = scene
+        scene_targets = SCENES[scene]
+        for servo in self.servos:
+            servo.target_angle = scene_targets[servo.name]
 
     def snapshot(self) -> RobotState:
         self._tick()
@@ -207,10 +214,7 @@ class RobotStateStore:
         return self.snapshot()
 
     def apply_scene(self, scene: SceneName) -> RobotState:
-        self.scene = scene
-        scene_targets = SCENES[scene]
-        for servo in self.servos:
-            servo.target_angle = scene_targets[servo.name]
+        self._set_scene_targets(scene)
         return self.snapshot()
 
     def pulse(self, payload: PulseUpdate) -> RobotState:
@@ -232,5 +236,27 @@ class RobotStateStore:
             servo.target_angle = payload.target_angle
         if payload.torque_enabled is not None:
             servo.torque_enabled = payload.torque_enabled
+
+        return self.snapshot()
+
+    def select_track(self, payload: TrackSelection) -> RobotState:
+        track = payload.track
+        self.transport.current_track = track
+        self.transport.track_name = f"{track.title} - {track.artist}"
+        self.transport.bpm = track.motion_profile.bpm
+        self.transport.energy = track.motion_profile.energy
+        self.transport.position_seconds = 0.0
+        self.transport.playing = payload.autoplay
+
+        scene_map = {
+            "groove": SceneName.BLOOM,
+            "sweep": SceneName.SWEEP,
+            "punch": SceneName.PUNCH,
+            "float": SceneName.IDLE,
+        }
+        self._set_scene_targets(scene_map.get(track.motion_profile.pattern_bias, SceneName.BLOOM))
+
+        if payload.autoplay:
+            self.mode = DanceMode.AUTONOMOUS
 
         return self.snapshot()

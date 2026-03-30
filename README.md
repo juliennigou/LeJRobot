@@ -42,6 +42,20 @@ npm run dev
 
 The Vite dev server proxies `/api/*` requests to `http://127.0.0.1:8000`.
 
+## Music Search
+
+The app now supports song search through Jamendo's API.
+
+- By default the backend uses Jamendo's public testing `client_id` (`709fa152`) for read-only search.
+- For your own app quota, set `JAMENDO_CLIENT_ID` before starting the backend.
+
+Example:
+
+```bash
+export JAMENDO_CLIENT_ID="your_client_id"
+./run_app.sh
+```
+
 ## Next step
 
-The next engineering step is to replace the mock `RobotStateStore` motion engine with a real adapter that pushes commands through LeRobot / Feetech to your follower arm while preserving the current API shape.
+The next engineering step is to replace the estimated motion profile with real audio analysis and then swap the mock `RobotStateStore` motion engine for a real adapter that pushes commands through LeRobot / Feetech to your follower arm while preserving the current API shape.

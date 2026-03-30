@@ -1,4 +1,4 @@
-import type { DanceMode, RobotConfig, RobotState, SceneName } from "@/lib/types";
+import type { DanceMode, RobotConfig, RobotState, SceneName, TrackSearchResponse, TrackSummary } from "@/lib/types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -68,5 +68,22 @@ export function updateServo(
   return request<RobotState>(`/api/servo/${servoId}`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function searchTracks(query: string, source = "jamendo", limit = 8) {
+  const params = new URLSearchParams({
+    q: query,
+    source,
+    limit: String(limit),
+  });
+
+  return request<TrackSearchResponse>(`/api/tracks/search?${params.toString()}`);
+}
+
+export function selectTrack(track: TrackSummary, autoplay = true) {
+  return request<RobotState>("/api/tracks/select", {
+    method: "POST",
+    body: JSON.stringify({ track, autoplay }),
   });
 }

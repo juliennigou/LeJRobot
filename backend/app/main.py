@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from .music import JamendoTrackProvider, TrackProviderError
 from .models import (
     ModeUpdate,
     PulseUpdate,
@@ -10,12 +11,16 @@ from .models import (
     RobotState,
     SceneUpdate,
     ServoUpdate,
+    TrackSearchResponse,
+    TrackSelection,
+    TrackSource,
     TransportUpdate,
 )
 from .state import RobotStateStore
 
 app = FastAPI(title="LeRobot Motion Console API", version="0.1.0")
 store = RobotStateStore()
+jamendo_provider = JamendoTrackProvider()
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,3 +75,25 @@ def update_servo(servo_id: int, payload: ServoUpdate) -> RobotState:
         return store.update_servo(servo_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/tracks/search", response_model=TrackSearchResponse)
+def search_tracks(
+    q: str,
+    source: TrackSource = TrackSource.JAMENDO,
+    limit: int = 8,
+) -> TrackSearchResponse:
+    if source != TrackSource.JAMENDO:
+        raise HTTPException(status_code=400, detail=f"Track source '{source}' is not implemented yet")
+
+    try:
+        results = jamendo_provider.search(q, limit=limit)
+    except TrackProviderError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return TrackSearchResponse(query=q, source=source, results=results)
+
+
+@app.post("/api/tracks/select", response_model=RobotState)
+def select_track(payload: TrackSelection) -> RobotState:
+    return store.select_track(payload)

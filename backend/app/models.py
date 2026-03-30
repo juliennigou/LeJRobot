@@ -19,6 +19,12 @@ class SceneName(str, Enum):
     SWEEP = "sweep"
 
 
+class TrackSource(str, Enum):
+    JAMENDO = "jamendo"
+    LOCAL = "local"
+    YOUTUBE = "youtube"
+
+
 class RobotConfig(BaseModel):
     assembly: str = "Follower"
     follower_id: str = "follower_arm"
@@ -28,12 +34,31 @@ class RobotConfig(BaseModel):
     safety_step_ticks: int = 120
 
 
+class MotionProfile(BaseModel):
+    bpm: int = Field(ge=40, le=220)
+    energy: float = Field(ge=0.0, le=1.0)
+    pattern_bias: str = "groove"
+
+
+class TrackSummary(BaseModel):
+    track_id: str
+    source: TrackSource
+    title: str
+    artist: str
+    duration_seconds: float | None = None
+    artwork_url: str | None = None
+    audio_url: str | None = None
+    external_url: str | None = None
+    motion_profile: MotionProfile
+
+
 class TransportState(BaseModel):
     playing: bool = False
     track_name: str = "No track selected"
     bpm: int = 120
     energy: float = Field(default=0.5, ge=0.0, le=1.0)
     position_seconds: float = 0.0
+    current_track: TrackSummary | None = None
 
 
 class ServoState(BaseModel):
@@ -85,3 +110,14 @@ class PulseUpdate(BaseModel):
 class ServoUpdate(BaseModel):
     target_angle: float | None = Field(default=None, ge=-140.0, le=140.0)
     torque_enabled: bool | None = None
+
+
+class TrackSearchResponse(BaseModel):
+    query: str
+    source: TrackSource
+    results: list[TrackSummary]
+
+
+class TrackSelection(BaseModel):
+    track: TrackSummary
+    autoplay: bool = True

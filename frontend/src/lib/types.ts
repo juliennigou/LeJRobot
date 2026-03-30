@@ -1,5 +1,6 @@
 export type DanceMode = "idle" | "manual" | "autonomous" | "pulse";
 export type SceneName = "idle" | "bloom" | "punch" | "sweep";
+export type TrackSource = "jamendo" | "local" | "youtube";
 
 export interface RobotConfig {
   assembly: string;
@@ -10,12 +11,37 @@ export interface RobotConfig {
   safety_step_ticks: number;
 }
 
+export interface MotionProfile {
+  bpm: number;
+  energy: number;
+  pattern_bias: string;
+}
+
+export interface TrackSummary {
+  track_id: string;
+  source: TrackSource;
+  title: string;
+  artist: string;
+  duration_seconds?: number | null;
+  artwork_url?: string | null;
+  audio_url?: string | null;
+  external_url?: string | null;
+  motion_profile: MotionProfile;
+}
+
+export interface TrackSearchResponse {
+  query: string;
+  source: TrackSource;
+  results: TrackSummary[];
+}
+
 export interface TransportState {
   playing: boolean;
   track_name: string;
   bpm: number;
   energy: number;
   position_seconds: number;
+  current_track?: TrackSummary | null;
 }
 
 export interface ServoState {
