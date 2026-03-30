@@ -1,0 +1,54 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 63% 8%;
+    --foreground: 205 70% 96%;
+    --card: 212 44% 11%;
+    --card-foreground: 205 70% 96%;
+    --popover: 212 44% 11%;
+    --popover-foreground: 205 70% 96%;
+    --primary: 18 88% 59%;
+    --primary-foreground: 210 63% 8%;
+    --secondary: 196 69% 44%;
+    --secondary-foreground: 205 70% 96%;
+    --muted: 212 30% 18%;
+    --muted-foreground: 206 28% 75%;
+    --accent: 157 70% 44%;
+    --accent-foreground: 210 63% 8%;
+    --destructive: 0 75% 58%;
+    --destructive-foreground: 205 70% 96%;
+    --border: 212 25% 23%;
+    --input: 212 25% 23%;
+    --ring: 18 88% 59%;
+    --radius: 1.25rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    font-family: "Space Grotesk", sans-serif;
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(255, 132, 66, 0.18), transparent 24%),
+      radial-gradient(circle at 80% 10%, rgba(22, 163, 201, 0.18), transparent 22%),
+      linear-gradient(180deg, rgba(6, 18, 33, 0.96), rgba(5, 15, 24, 1));
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply border border-white/10 bg-white/5 backdrop-blur-xl;
+  }
+
+  .hud-label {
+    font-family: "IBM Plex Mono", monospace;
+    @apply text-xs uppercase tracking-[0.3em] text-muted-foreground;
+  }
+}
