@@ -106,6 +106,13 @@ class MovementTargetScope(str, Enum):
     BOTH = "both"
 
 
+class AutonomyStatus(str, Enum):
+    IDLE = "idle"
+    ARMED = "armed"
+    RUNNING = "running"
+    ERROR = "error"
+
+
 class RobotConfig(BaseModel):
     assembly: str = "Follower"
     follower_id: str = "follower_arm"
@@ -332,6 +339,15 @@ class ChoreographySchedule(BaseModel):
     phrases: list[ScheduledMovementPhrase] = Field(default_factory=list)
 
 
+class AutonomousPerformanceState(BaseModel):
+    status: AutonomyStatus = AutonomyStatus.IDLE
+    active_phrase_id: str | None = None
+    current_phrase: ScheduledMovementPhrase | None = None
+    next_phrase_id: str | None = None
+    note: str | None = None
+    last_transition_at: str | None = None
+
+
 class RobotState(BaseModel):
     connected: bool
     status: str
@@ -350,6 +366,7 @@ class RobotState(BaseModel):
     dual_arm: DualArmState
     movement_library: MovementLibraryState
     schedule: ChoreographySchedule | None = None
+    autonomy: AutonomousPerformanceState = Field(default_factory=AutonomousPerformanceState)
 
 
 class ModeUpdate(BaseModel):

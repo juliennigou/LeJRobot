@@ -432,6 +432,34 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertLess(bridge.goals["test_leader"]["shoulder_pan"], 0.0)
         self.assertGreater(bridge.goals["test_follower"]["shoulder_pan"], 0.0)
 
+        autonomy_start = self.client.post("/api/autonomy/start")
+        self.assertEqual(autonomy_start.status_code, 200)
+        autonomy_payload = autonomy_start.json()
+        self.assertEqual(autonomy_payload["mode"], "autonomous")
+        self.assertTrue(autonomy_payload["transport"]["playing"])
+        self.assertEqual(autonomy_payload["autonomy"]["status"], "armed")
+
+        autonomy_running = None
+        for _ in range(120):
+            snapshot = self.client.get("/api/state")
+            self.assertEqual(snapshot.status_code, 200)
+            state_live = snapshot.json()
+            if state_live["autonomy"]["status"] == "running" and state_live["autonomy"]["current_phrase"] is not None:
+                autonomy_running = state_live["autonomy"]
+                break
+            time.sleep(0.05)
+
+        self.assertIsNotNone(autonomy_running)
+        self.assertIn(autonomy_running["current_phrase"]["movement_id"], {"wave", "wrist_lean"})
+        self.assertIn(autonomy_running["current_phrase"]["execution_mode"], {"mirror", "unison"})
+
+        autonomy_stop = self.client.post("/api/autonomy/stop")
+        self.assertEqual(autonomy_stop.status_code, 200)
+        stop_payload = autonomy_stop.json()
+        self.assertEqual(stop_payload["mode"], "idle")
+        self.assertFalse(stop_payload["transport"]["playing"])
+        self.assertEqual(stop_payload["autonomy"]["status"], "idle")
+
         cache_files = list((Path(self.tempdir.name) / "analysis-cache" / "json" / "local").glob("*.json"))
         self.assertTrue(cache_files)
 

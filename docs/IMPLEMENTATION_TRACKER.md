@@ -30,12 +30,12 @@ The delivery sequence is:
 - `#34` Execute choreography on one live SO-101 arm [done]
 - `#33` Run synchronized dual-arm choreography playback on leader + follower [done]
 - `#52` Add follow-through motion layer for live movements [done]
-- `#55` Build choreography scheduler from audio analysis to movement execution
+- `#55` Build choreography scheduler from audio analysis to movement execution [done]
 - `#57` Run autonomous music-driven dual-arm playback from the scheduler
 - `#56` Add song-level dance style controls and phrase mapping UI
 
 ## Current Status
-- Current PR target: `#55`
+- Current PR target: `#57`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -53,7 +53,8 @@ The delivery sequence is:
   - `#45` now adds terminal-first tooling to record manual SO-101 joint demonstrations, replay them through the existing safety path, and fit a cleaner wave preset from recordings
   - `#33` now adds synchronized movement playback for both arms with `single`, `both-unison`, and `both-mirror` targeting
   - `#52` adds a follow-through layer on top of oscillator motions so distal joints can react with tunable delay, gain, damping, and settling
-  - `#55` is now adding a beat-aligned scheduler that converts analysis sections and beat grids into timed movement phrases
+  - `#55` now adds a beat-aligned scheduler that converts analysis sections and beat grids into timed movement phrases
+  - `#57` now adds autonomous playback controls that arm the transport, trigger scheduled phrases on time, and stop cleanly when the schedule completes or is cancelled
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
@@ -68,7 +69,8 @@ The delivery sequence is:
   - `#33` extends the Movement Library page with single-arm vs dual-arm targeting and `mirror` / `unison` playback controls
   - `#52` extends movement presets and UI tuning with follow-through controls so fluidity can be tuned before live execution
   - `#45` adds terminal scripts for record/replay/fitting so manual observations can drive later motion refinement outside the UI
-  - Music-driven choreography execution is not implemented yet, but the app can now inspect scheduled phrase output for the selected track and execute bounded library gestures on one or both live arms
+  - `#55` lets the app inspect scheduled phrase output for the selected track
+  - `#57` is now wiring autonomous transport control so scheduled phrases execute live on one or both arms from the Track Info page
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.
@@ -84,9 +86,8 @@ The delivery sequence is:
 - Persist computed audio analysis under `.data/analysis-cache/json/` and remote source audio under `.data/analysis-cache/audio/`.
 
 ## PR Order
-1. `#55` Choreography scheduler from audio analysis
-2. `#57` Autonomous dual-arm playback from the scheduler
-3. `#56` Song-level style controls and phrase mapping UI
+1. `#57` Autonomous dual-arm playback from the scheduler
+2. `#56` Song-level style controls and phrase mapping UI
 
 ## Update Rule
 After each merged PR:
