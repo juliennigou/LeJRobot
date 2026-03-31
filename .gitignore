@@ -7,5 +7,6 @@ __pycache__
 .data/setup.json
 .data/analysis-cache/
 .data/uploads/
+.data/movements/
 .env.local
 frontend/tsconfig.app.tsbuildinfo

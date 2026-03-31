@@ -634,6 +634,12 @@ class DualArmAdapter:
         self._movement_state.updated_at = datetime.now(UTC).isoformat()
         self._movement_state.note = "Movement stopped."
 
+    def execute_live_targets(self, arm_id: str, targets: dict[str, float], *, reason: str = "Manual targets") -> None:
+        arm = self._arm(arm_id)
+        self._assert_arm_ready_for_motion(arm)
+        with self._command_lock:
+            self._write_control_step(arm, targets, reason=reason)
+
     def verify_all(self) -> None:
         for arm_id in self.arms:
             self.verify_arm(arm_id)
