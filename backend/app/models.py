@@ -93,6 +93,14 @@ class ArmVerificationStatus(str, Enum):
     ERROR = "error"
 
 
+class MovementStatus(str, Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    STOPPED = "stopped"
+    ERROR = "error"
+
+
 class RobotConfig(BaseModel):
     assembly: str = "Follower"
     follower_id: str = "follower_arm"
@@ -223,6 +231,32 @@ class DualArmState(BaseModel):
     execution: DualArmExecutionState
 
 
+class MovementDefinition(BaseModel):
+    movement_id: str
+    name: str
+    summary: str
+    description: str
+    duration_seconds: float = Field(gt=0.0)
+    focus_joints: list[str] = Field(default_factory=list)
+    recommended_arm: ArmType | None = None
+
+
+class MovementRunState(BaseModel):
+    status: MovementStatus = MovementStatus.IDLE
+    movement_id: str | None = None
+    arm_id: str | None = None
+    arm_type: ArmType | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
+    note: str | None = None
+    progress: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class MovementLibraryState(BaseModel):
+    movements: list[MovementDefinition] = Field(default_factory=list)
+    active: MovementRunState = Field(default_factory=MovementRunState)
+
+
 class RobotState(BaseModel):
     connected: bool
     status: str
@@ -239,6 +273,7 @@ class RobotState(BaseModel):
     spectrum: list[int]
     servos: list[ServoState]
     dual_arm: DualArmState
+    movement_library: MovementLibraryState
 
 
 class ModeUpdate(BaseModel):
@@ -292,6 +327,11 @@ class ArmSafetyUpdate(BaseModel):
 
 class ExecutionModeUpdate(BaseModel):
     mode: ExecutionMode
+
+
+class MovementRunRequest(BaseModel):
+    movement_id: str
+    arm_id: str
 
 
 class TrackSearchResponse(BaseModel):

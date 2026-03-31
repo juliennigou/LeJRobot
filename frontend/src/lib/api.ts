@@ -5,6 +5,7 @@ import type {
   ChoreographyTimeline,
   DanceMode,
   DualArmState,
+  MovementLibraryState,
   RobotConfig,
   RobotState,
   SceneName,
@@ -86,6 +87,23 @@ export function resetEmergencyStop() {
 
 export function moveArmsToNeutral() {
   return request<DualArmState>("/api/arms/neutral", {
+    method: "POST",
+  });
+}
+
+export function fetchMovementLibrary() {
+  return request<MovementLibraryState>("/api/movements");
+}
+
+export function runMovement(armId: string, movementId: string) {
+  return request<MovementLibraryState>("/api/movements/run", {
+    method: "POST",
+    body: JSON.stringify({ arm_id: armId, movement_id: movementId }),
+  });
+}
+
+export function stopMovement() {
+  return request<MovementLibraryState>("/api/movements/stop", {
     method: "POST",
   });
 }

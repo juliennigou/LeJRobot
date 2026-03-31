@@ -18,6 +18,8 @@ from .models import (
     DualArmState,
     ExecutionModeUpdate,
     ModeUpdate,
+    MovementLibraryState,
+    MovementRunRequest,
     PulseUpdate,
     RobotConfig,
     RobotState,
@@ -144,6 +146,24 @@ def emergency_reset() -> DualArmState:
 @app.post("/api/arms/neutral", response_model=DualArmState)
 def move_arms_to_neutral() -> DualArmState:
     return store.move_to_neutral()
+
+
+@app.get("/api/movements", response_model=MovementLibraryState)
+def get_movements() -> MovementLibraryState:
+    return store.movement_library()
+
+
+@app.post("/api/movements/run", response_model=MovementLibraryState)
+def run_movement(payload: MovementRunRequest) -> MovementLibraryState:
+    try:
+        return store.run_movement(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/movements/stop", response_model=MovementLibraryState)
+def stop_movement() -> MovementLibraryState:
+    return store.stop_movement()
 
 
 @app.get("/api/tracks/search", response_model=TrackSearchResponse)

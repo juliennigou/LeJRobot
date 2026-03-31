@@ -6,7 +6,8 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from time import sleep
+from time import monotonic, sleep
+from threading import Event, Lock, Thread
 from typing import Any, Protocol
 
 try:
@@ -33,11 +34,16 @@ from .models import (
     DualArmExecutionState,
     DualArmState,
     ExecutionMode,
+    MovementDefinition,
+    MovementLibraryState,
+    MovementRunState,
+    MovementStatus,
     MotionCue,
     RobotConfig,
     SceneName,
     ServoState,
 )
+from .movement_library import get_movement, interpolate_targets, list_movements
 
 DEFAULT_JOINT_LAYOUT = [
     (1, "shoulder_pan"),
@@ -62,6 +68,7 @@ DEFAULT_EXPECTED_JOINT_COUNT = len(DEFAULT_JOINT_LAYOUT)
 HEARTBEAT_TIMEOUT_SECONDS = 1.5
 NEUTRAL_TOLERANCE_DEGREES = 2.0
 MAX_NEUTRAL_COMMAND_STEPS = 18
+MOVEMENT_LOOP_INTERVAL_SECONDS = 0.06
 
 
 @dataclass
@@ -402,6 +409,11 @@ class DualArmAdapter:
         self.neutral_pose_scene = SceneName.IDLE
         self.required_dry_run = True
         self.last_command_at: str | None = None
+        self._command_lock = Lock()
+        self._movement_stop = Event()
+        self._movement_thread: Thread | None = None
+        self._movement_definitions = {movement.movement_id: movement for movement in list_movements()}
+        self._movement_state = MovementRunState(note="No movement selected yet.")
         self.arms: dict[str, ArmRuntime] = {}
         self.verifier = verifier or LeRobotArmVerifier()
         self.bridge = bridge or LeRobotHardwareBridge()
@@ -497,6 +509,8 @@ class DualArmAdapter:
                 raise ValueError(arm.notes) from exc
             return
 
+        if self._movement_state.status == MovementStatus.RUNNING and self._movement_state.arm_id == arm_id:
+            self.stop_movement()
         self.bridge.disconnect(arm)
         arm.connected = False
         arm.telemetry.live = False
@@ -541,6 +555,8 @@ class DualArmAdapter:
         )
 
     def emergency_stop(self) -> None:
+        if self._movement_state.status == MovementStatus.RUNNING:
+            self._movement_stop.set()
         for arm in self.arms.values():
             arm.safety.emergency_stop = True
             arm.safety.torque_enabled = False
@@ -564,6 +580,53 @@ class DualArmAdapter:
             applied = self._write_safe_targets(arm, NEUTRAL_JOINT_TARGETS, reason="Neutral pose")
             if applied:
                 arm.notes = "Moved toward neutral pose within live safety limits."
+
+    def movement_library_snapshot(self) -> MovementLibraryState:
+        return MovementLibraryState(
+            movements=[definition.model_copy(deep=True) for definition in self._movement_definitions.values()],
+            active=self._movement_state.model_copy(deep=True),
+        )
+
+    def start_movement(self, arm_id: str, movement_id: str) -> None:
+        arm = self._arm(arm_id)
+        definition = self._movement_definitions.get(movement_id)
+        spec = get_movement(movement_id)
+        if definition is None or spec is None:
+            raise ValueError(f"Unknown movement '{movement_id}'")
+        if self._movement_state.status == MovementStatus.RUNNING:
+            raise ValueError("A movement is already running")
+
+        self._assert_arm_ready_for_motion(arm)
+        self._movement_stop.clear()
+        now = datetime.now(UTC).isoformat()
+        self._movement_state = MovementRunState(
+            status=MovementStatus.RUNNING,
+            movement_id=movement_id,
+            arm_id=arm.arm_id,
+            arm_type=arm.arm_type,
+            started_at=now,
+            updated_at=now,
+            note=f"Running {definition.name} on {arm.arm_id}.",
+            progress=0.0,
+        )
+        self._movement_thread = Thread(
+            target=self._run_movement_thread,
+            args=(arm.arm_id, definition),
+            daemon=True,
+            name=f"movement-{movement_id}-{arm.arm_id}",
+        )
+        self._movement_thread.start()
+
+    def stop_movement(self) -> None:
+        if self._movement_state.status != MovementStatus.RUNNING:
+            return
+        self._movement_stop.set()
+        if self._movement_thread is not None:
+            self._movement_thread.join(timeout=1.0)
+        self._movement_thread = None
+        self._movement_state.status = MovementStatus.STOPPED
+        self._movement_state.updated_at = datetime.now(UTC).isoformat()
+        self._movement_state.note = "Movement stopped."
 
     def verify_all(self) -> None:
         for arm_id in self.arms:
@@ -807,6 +870,78 @@ class DualArmAdapter:
         updated_at = datetime.fromisoformat(arm.telemetry.updated_at)
         age = (datetime.now(UTC) - updated_at).total_seconds()
         return age <= HEARTBEAT_TIMEOUT_SECONDS
+
+    def _assert_arm_ready_for_motion(self, arm: ArmRuntime) -> None:
+        if not self.bridge.is_connected(arm):
+            raise ValueError(f"Arm '{arm.arm_id}' is not connected.")
+        if arm.safety.dry_run:
+            raise ValueError(f"Arm '{arm.arm_id}' is still in dry-run mode.")
+        if arm.safety.emergency_stop:
+            raise ValueError(f"Arm '{arm.arm_id}' is in emergency stop.")
+        if not arm.safety.torque_enabled:
+            raise ValueError(f"Arm '{arm.arm_id}' torque is disabled.")
+        self.refresh_telemetry(arm.arm_id)
+        if not self._telemetry_is_fresh(arm):
+            raise ValueError(f"Arm '{arm.arm_id}' telemetry heartbeat is stale.")
+
+    def _run_movement_thread(
+        self,
+        arm_id: str,
+        definition: MovementDefinition,
+    ) -> None:
+        try:
+            arm = self._arm(arm_id)
+            spec = get_movement(definition.movement_id)
+            if spec is None:
+                raise ValueError(f"Unknown movement '{definition.movement_id}'")
+            total_duration = max(definition.duration_seconds, MOVEMENT_LOOP_INTERVAL_SECONDS)
+            started = monotonic()
+            while True:
+                elapsed = monotonic() - started
+                if elapsed > total_duration + MOVEMENT_LOOP_INTERVAL_SECONDS:
+                    break
+                if self._movement_stop.is_set() or self.emergency_stop_active():
+                    self._movement_state.status = MovementStatus.STOPPED
+                    self._movement_state.updated_at = datetime.now(UTC).isoformat()
+                    self._movement_state.note = "Movement interrupted."
+                    return
+
+                self._assert_arm_ready_for_motion(arm)
+                target = interpolate_targets(spec, elapsed)
+                with self._command_lock:
+                    self._write_control_step(arm, target, reason=definition.name)
+
+                self._movement_state.progress = clamp(elapsed / total_duration, 0.0, 1.0)
+                self._movement_state.updated_at = datetime.now(UTC).isoformat()
+                self._movement_state.note = f"{definition.name} in progress."
+                sleep(MOVEMENT_LOOP_INTERVAL_SECONDS)
+
+            self._movement_state.status = MovementStatus.COMPLETED
+            self._movement_state.progress = 1.0
+            self._movement_state.updated_at = datetime.now(UTC).isoformat()
+            self._movement_state.note = f"{definition.name} completed."
+        except Exception as exc:
+            self._movement_state.status = MovementStatus.ERROR
+            self._movement_state.updated_at = datetime.now(UTC).isoformat()
+            self._movement_state.note = str(exc)
+            arm = self.arms.get(arm_id)
+            if arm is not None:
+                arm.last_command_error = str(exc)
+                arm.notes = f"Movement error: {exc}"
+        finally:
+            self._movement_thread = None
+
+    def _write_control_step(self, arm: ArmRuntime, targets: dict[str, float], *, reason: str) -> None:
+        current_servos = self.refresh_telemetry(arm.arm_id)
+        current_map = {servo.name: servo for servo in current_servos}
+        safe_targets = self._limit_joint_targets(arm, current_map, targets)
+        if not safe_targets:
+            return
+        self.bridge.write_joint_targets(arm, safe_targets)
+        arm.last_command_at = datetime.now(UTC).isoformat()
+        arm.last_command_error = None
+        self.last_command_at = arm.last_command_at
+        arm.notes = f"{reason} step written."
 
     def _arm(self, arm_id: str) -> ArmRuntime:
         arm = self.arms.get(arm_id)

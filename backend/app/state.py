@@ -21,6 +21,8 @@ from .models import (
     ExecutionMode,
     ExecutionModeUpdate,
     MotionCue,
+    MovementLibraryState,
+    MovementRunRequest,
     PulseUpdate,
     RobotConfig,
     RobotState,
@@ -242,6 +244,7 @@ class RobotStateStore:
             spectrum=spectrum,
             servos=public_servos,
             dual_arm=dual_arm,
+            movement_library=self.arm_adapter.movement_library_snapshot(),
         )
 
     def _build_spectrum(self) -> list[int]:
@@ -423,6 +426,21 @@ class RobotStateStore:
         self.mode = DanceMode.IDLE
         self._set_scene_targets(SceneName.IDLE)
         return self.arms_snapshot()
+
+    def movement_library(self) -> MovementLibraryState:
+        self._tick()
+        return self.arm_adapter.movement_library_snapshot()
+
+    def run_movement(self, payload: MovementRunRequest) -> MovementLibraryState:
+        self.arm_adapter.start_movement(payload.arm_id, payload.movement_id)
+        self.mode = DanceMode.MANUAL
+        self.transport.playing = False
+        return self.movement_library()
+
+    def stop_movement(self) -> MovementLibraryState:
+        self.arm_adapter.stop_movement()
+        self.mode = DanceMode.IDLE
+        return self.movement_library()
 
     def queue_analysis(self, payload: TrackReference) -> AnalysisStartResponse:
         self.analysis_results.pop(self._track_key(payload.source, payload.track_id), None)

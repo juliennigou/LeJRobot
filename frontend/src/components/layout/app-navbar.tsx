@@ -1,14 +1,15 @@
-import { Menu, Music2, Radio, X } from "lucide-react";
+import { Menu, Music2, Radio, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-export type AppView = "home" | "analysis" | "robot";
+export type AppView = "home" | "analysis" | "movements" | "robot";
 
 const NAV_ITEMS: Array<{ id: AppView; label: string }> = [
   { id: "home", label: "Home" },
   { id: "analysis", label: "Audio Stats" },
+  { id: "movements", label: "Movement Library" },
   { id: "robot", label: "Robot Dashboard" },
 ];
 
@@ -79,6 +80,7 @@ export function AppNavbar({
                 onClick={() => activate(item.id)}
               >
                 {item.id === "robot" ? <Radio className="mr-2 h-4 w-4" /> : null}
+                {item.id === "movements" ? <Sparkles className="mr-2 h-4 w-4" /> : null}
                 {item.label}
               </Button>
             ))}

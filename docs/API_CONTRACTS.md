@@ -150,6 +150,28 @@ These contracts started ahead of the implementation. The real backend analysis p
 - Response: `DualArmState`
 - When a connected arm is live-enabled, the backend steps it toward the neutral scene through the same joint limits and max-step guard used by the live write path
 
+## Movement Library Endpoints
+
+### `GET /api/movements`
+- Response: `MovementLibraryState`
+- Returns the available manual movement definitions plus the current active movement runtime state
+
+### `POST /api/movements/run`
+- Body:
+```json
+{
+  "movement_id": "wave",
+  "arm_id": "thejn_follower_arm"
+}
+```
+- Response: `MovementLibraryState`
+- Starts one bounded live movement on the selected arm
+- Requires the selected arm to be connected, torque-enabled, not in dry run, and not in emergency stop
+
+### `POST /api/movements/stop`
+- Response: `MovementLibraryState`
+- Stops the active manual movement if one is running
+
 ## Canonical Models
 
 ### `TrackSummary`
@@ -214,6 +236,25 @@ These contracts started ahead of the implementation. The real backend analysis p
 ### `DualArmState`
 - `arms`
 - `execution`
+
+### `MovementDefinition`
+- `movement_id`
+- `name`
+- `summary`
+- `description`
+- `duration_seconds`
+- `focus_joints`
+- `recommended_arm`
+
+### `MovementRunState`
+- `status`
+- `movement_id`
+- `arm_id`
+- `arm_type`
+- `started_at`
+- `updated_at`
+- `note`
+- `progress`
 
 ### `ArmAdapterState`
 - `arm_id`
