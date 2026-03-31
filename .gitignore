@@ -5,6 +5,7 @@ __pycache__
 *.pyc
 .DS_Store
 .data/setup.json
+.data/analysis-cache/
 .data/uploads/
 .env.local
 frontend/tsconfig.app.tsbuildinfo

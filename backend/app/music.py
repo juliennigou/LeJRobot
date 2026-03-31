@@ -70,6 +70,26 @@ class LocalTrackLibrary:
             for record in records[: max(1, min(limit, 24))]
         ]
 
+    def get_track(self, track_id: str) -> TrackSummary:
+        record = self.records.get(track_id)
+        if record is None:
+            raise TrackProviderError(f"Unknown local track '{track_id}'")
+        return TrackSummary.model_validate(record["track"])
+
+    def get_audio_path(self, track_id: str) -> Path:
+        record = self.records.get(track_id)
+        if record is None:
+            raise TrackProviderError(f"Unknown local track '{track_id}'")
+
+        stored_name = record.get("stored_name")
+        if not stored_name:
+            raise TrackProviderError(f"Missing stored file information for local track '{track_id}'")
+
+        path = self.uploads_dir / stored_name
+        if not path.exists():
+            raise TrackProviderError(f"Missing uploaded audio file for local track '{track_id}'")
+        return path
+
     def ingest_upload(self, filename: str | None, content_type: str | None, fileobj: BinaryIO) -> TrackSummary:
         if not filename:
             raise TrackProviderError("Uploaded file is missing a filename")
@@ -183,18 +203,32 @@ class JamendoTrackProvider:
         if not normalized_query:
             return []
 
-        params = {
+        results = self._fetch_tracks(
+            {
+                "limit": max(1, min(limit, 12)),
+                "search": normalized_query,
+                "order": "relevance",
+            }
+        )
+        return [self._parse_track(item) for item in results]
+
+    def get_track(self, track_id: str) -> TrackSummary:
+        results = self._fetch_tracks({"id": track_id, "limit": 1})
+        if not results:
+            raise TrackProviderError(f"Unknown Jamendo track '{track_id}'")
+        return self._parse_track(results[0])
+
+    def _fetch_tracks(self, params: dict) -> list[dict]:
+        request_params = {
             "client_id": self.client_id,
             "format": "json",
-            "limit": max(1, min(limit, 12)),
-            "search": normalized_query,
-            "order": "relevance",
             "audioformat": "mp31",
             "include": "musicinfo",
+            **params,
         }
 
         try:
-            response = httpx.get(self.endpoint, params=params, timeout=12.0)
+            response = httpx.get(self.endpoint, params=request_params, timeout=12.0)
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise TrackProviderError(f"Jamendo search failed: {exc}") from exc
@@ -205,8 +239,7 @@ class JamendoTrackProvider:
             message = headers.get("error_message") or "Unknown Jamendo error"
             raise TrackProviderError(message)
 
-        results = payload.get("results", [])
-        return [self._parse_track(item) for item in results]
+        return payload.get("results", [])
 
     def _parse_track(self, item: dict) -> TrackSummary:
         track_id = str(item.get("id", ""))

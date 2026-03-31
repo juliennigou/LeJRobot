@@ -86,6 +86,23 @@ Backend note:
 
 - `python-multipart` is now required by the FastAPI app to accept file uploads
 
+## Audio Analysis
+
+Phase 1 now includes a real backend audio-analysis pipeline.
+
+- Analysis is computed with `librosa`
+- Results are cached under `.data/analysis-cache/`
+- Local uploads are analyzed directly from `.data/uploads/files/`
+- Remote Jamendo tracks are downloaded into the analysis cache before decoding
+
+Install or refresh backend dependencies after pulling:
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ## Next step
 
-The next engineering step is to replace the estimated motion profile with real audio analysis and then swap the mock `RobotStateStore` motion engine for a real adapter that pushes commands through LeRobot / Feetech to your follower arm while preserving the current API shape.
+The next engineering step is to improve the choreography layer from the new audio analysis output, wire that analysis into the music UI tabs, and only then swap the mock `RobotStateStore` motion engine for real LeRobot / Feetech hardware adapters.
