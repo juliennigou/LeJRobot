@@ -54,6 +54,42 @@ export function setArmConnection(armId: string, connected: boolean) {
   });
 }
 
+export function updateArmSafety(
+  armId: string,
+  payload: {
+    dry_run?: boolean;
+    emergency_stop?: boolean;
+    neutral_on_stop?: boolean;
+    torque_enabled?: boolean;
+    amplitude_scale?: number;
+    speed_scale?: number;
+    max_step_degrees?: number;
+  },
+) {
+  return request<DualArmState>(`/api/arms/${armId}/safety`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function triggerEmergencyStop() {
+  return request<DualArmState>("/api/arms/emergency-stop", {
+    method: "POST",
+  });
+}
+
+export function resetEmergencyStop() {
+  return request<DualArmState>("/api/arms/emergency-reset", {
+    method: "POST",
+  });
+}
+
+export function moveArmsToNeutral() {
+  return request<DualArmState>("/api/arms/neutral", {
+    method: "POST",
+  });
+}
+
 export function setMode(mode: DanceMode) {
   return request<RobotState>("/api/mode", {
     method: "POST",

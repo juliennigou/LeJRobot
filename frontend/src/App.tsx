@@ -6,11 +6,15 @@ import {
   fetchAnalysisStatus,
   fetchChoreography,
   fetchState,
+  moveArmsToNeutral,
+  resetEmergencyStop,
   searchTracks,
   setArmConnection,
   selectTrack,
   setTransport,
   startAnalysis,
+  triggerEmergencyStop,
+  updateArmSafety,
   uploadTrack,
   verifyArms,
 } from "@/lib/api";
@@ -57,6 +61,7 @@ function App() {
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [verifyingHardware, setVerifyingHardware] = useState(false);
   const [hardwareBusyArmId, setHardwareBusyArmId] = useState<string | null>(null);
+  const [hardwareActionBusy, setHardwareActionBusy] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -308,6 +313,53 @@ function App() {
     }
   }, []);
 
+  const handleUpdateArmSafety = useCallback(
+    async (
+      armId: string,
+      payload: {
+        dry_run?: boolean;
+        emergency_stop?: boolean;
+        torque_enabled?: boolean;
+      },
+      busyKey: string,
+    ) => {
+      setHardwareActionBusy(busyKey);
+      try {
+        await updateArmSafety(armId, payload);
+        await refreshState();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to update arm safety");
+      } finally {
+        setHardwareActionBusy(null);
+      }
+    },
+    [],
+  );
+
+  const handleGlobalArmAction = useCallback(
+    async (action: "neutral" | "emergency-stop" | "emergency-reset") => {
+      setHardwareActionBusy(action);
+      try {
+        if (action === "neutral") {
+          await moveArmsToNeutral();
+        } else if (action === "emergency-stop") {
+          await triggerEmergencyStop();
+        } else {
+          await resetEmergencyStop();
+        }
+        await refreshState();
+        setError(null);
+        setActiveView("robot");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to update arm safety");
+      } finally {
+        setHardwareActionBusy(null);
+      }
+    },
+    [],
+  );
+
   const searchDropdownResults = useMemo(() => {
     const deduped = new Map<string, TrackSummary>();
     [...localTracks, ...searchResults].forEach((track) => {
@@ -502,8 +554,21 @@ function App() {
             loading={loading}
             verifying={verifyingHardware}
             busyArmId={hardwareBusyArmId}
+            busyAction={hardwareActionBusy}
             onVerify={() => void handleVerifyHardware()}
             onToggleConnection={(armId, connected) => void handleToggleArmConnection(armId, connected)}
+            onToggleDryRun={(armId, dryRun) =>
+              void handleUpdateArmSafety(armId, { dry_run: dryRun }, `${armId}:dry-run`)
+            }
+            onToggleTorque={(armId, enabled) =>
+              void handleUpdateArmSafety(armId, { torque_enabled: enabled }, `${armId}:torque`)
+            }
+            onResetArmEmergencyStop={(armId) =>
+              void handleUpdateArmSafety(armId, { emergency_stop: false }, `${armId}:reset-estop`)
+            }
+            onNeutralAll={() => void handleGlobalArmAction("neutral")}
+            onEmergencyStop={() => void handleGlobalArmAction("emergency-stop")}
+            onEmergencyReset={() => void handleGlobalArmAction("emergency-reset")}
           />
         ) : null}
 

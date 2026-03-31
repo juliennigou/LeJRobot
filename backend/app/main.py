@@ -136,6 +136,11 @@ def emergency_stop() -> DualArmState:
     return store.emergency_stop()
 
 
+@app.post("/api/arms/emergency-reset", response_model=DualArmState)
+def emergency_reset() -> DualArmState:
+    return store.reset_emergency_stop()
+
+
 @app.post("/api/arms/neutral", response_model=DualArmState)
 def move_arms_to_neutral() -> DualArmState:
     return store.move_to_neutral()

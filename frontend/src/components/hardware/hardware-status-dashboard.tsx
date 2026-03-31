@@ -61,15 +61,29 @@ export function HardwareStatusDashboard({
   loading,
   verifying,
   busyArmId,
+  busyAction,
   onVerify,
   onToggleConnection,
+  onToggleDryRun,
+  onToggleTorque,
+  onResetArmEmergencyStop,
+  onNeutralAll,
+  onEmergencyStop,
+  onEmergencyReset,
 }: {
   state: RobotState | null;
   loading: boolean;
   verifying: boolean;
   busyArmId: string | null;
+  busyAction: string | null;
   onVerify: () => void;
   onToggleConnection: (armId: string, connected: boolean) => void;
+  onToggleDryRun: (armId: string, dryRun: boolean) => void;
+  onToggleTorque: (armId: string, enabled: boolean) => void;
+  onResetArmEmergencyStop: (armId: string) => void;
+  onNeutralAll: () => void;
+  onEmergencyStop: () => void;
+  onEmergencyReset: () => void;
 }) {
   const arms = state?.dual_arm.arms ?? [];
   const execution = state?.dual_arm.execution;
@@ -100,6 +114,24 @@ export function HardwareStatusDashboard({
             <Button variant="secondary" onClick={onVerify} disabled={verifying}>
               <RefreshCw className={`mr-2 h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
               {verifying ? "Checking Hardware..." : "Run Verification"}
+            </Button>
+            <Button variant="ghost" onClick={onNeutralAll} disabled={busyAction !== null}>
+              {busyAction === "neutral" ? "Moving..." : "Neutral All"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={onEmergencyReset}
+              disabled={busyAction !== null || !execution?.emergency_stop_active}
+            >
+              {busyAction === "emergency-reset" ? "Resetting..." : "Reset E-Stop"}
+            </Button>
+            <Button
+              variant="secondary"
+              className="border border-red-300/20 bg-red-500/10 text-red-100 hover:bg-red-500/20"
+              onClick={onEmergencyStop}
+              disabled={busyAction !== null}
+            >
+              {busyAction === "emergency-stop" ? "Stopping..." : "Emergency Stop"}
             </Button>
           </div>
         </CardHeader>
@@ -207,6 +239,38 @@ export function HardwareStatusDashboard({
                     <StatusBlock label="Amplitude" value={arm.safety.amplitude_scale.toFixed(2)} />
                     <StatusBlock label="Speed" value={arm.safety.speed_scale.toFixed(2)} />
                     <StatusBlock label="Step Limit" value={`${arm.safety.max_step_degrees.toFixed(1)}°`} />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Button
+                      variant={arm.safety.dry_run ? "secondary" : "ghost"}
+                      disabled={busyAction !== null}
+                      onClick={() => onToggleDryRun(arm.arm_id, !arm.safety.dry_run)}
+                    >
+                      {busyAction === `${arm.arm_id}:dry-run`
+                        ? "Updating..."
+                        : arm.safety.dry_run
+                          ? "Dry Run On"
+                          : "Dry Run Off"}
+                    </Button>
+                    <Button
+                      variant={arm.safety.torque_enabled ? "secondary" : "ghost"}
+                      disabled={busyAction !== null || arm.safety.emergency_stop}
+                      onClick={() => onToggleTorque(arm.arm_id, !arm.safety.torque_enabled)}
+                    >
+                      {busyAction === `${arm.arm_id}:torque`
+                        ? "Updating..."
+                        : arm.safety.torque_enabled
+                          ? "Torque On"
+                          : "Torque Off"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busyAction !== null || !arm.safety.emergency_stop}
+                      onClick={() => onResetArmEmergencyStop(arm.arm_id)}
+                    >
+                      {busyAction === `${arm.arm_id}:reset-estop` ? "Resetting..." : "Clear Arm E-Stop"}
+                    </Button>
                   </div>
 
                   <div className="overflow-hidden rounded-[22px] border border-white/10">

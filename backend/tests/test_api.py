@@ -47,9 +47,22 @@ DEFAULT_SERVO_LAYOUT = [
 class FakeTelemetryBridge:
     def __init__(self) -> None:
         self.connected: set[str] = set()
+        self.torque_enabled: dict[str, bool] = {}
+        self.angles: dict[str, dict[str, float]] = {}
+        self.goals: dict[str, dict[str, float]] = {}
 
     def connect(self, arm: ArmRuntime) -> None:
         self.connected.add(arm.arm_id)
+        self.torque_enabled.setdefault(arm.arm_id, True)
+        base = 10.0 if arm.arm_type == "leader" else 20.0
+        self.angles.setdefault(
+            arm.arm_id,
+            {name: base + servo_id for servo_id, name in DEFAULT_SERVO_LAYOUT},
+        )
+        self.goals.setdefault(
+            arm.arm_id,
+            {name: base + servo_id + 0.5 for servo_id, name in DEFAULT_SERVO_LAYOUT},
+        )
 
     def disconnect(self, arm: ArmRuntime) -> None:
         self.connected.discard(arm.arm_id)
@@ -58,14 +71,15 @@ class FakeTelemetryBridge:
         return arm.arm_id in self.connected
 
     def read_telemetry(self, arm: ArmRuntime) -> list[ServoState]:
-        base = 10.0 if arm.arm_type == "leader" else 20.0
-        torque_enabled = arm.safety.torque_enabled and not arm.safety.emergency_stop
+        torque_enabled = self.torque_enabled.get(arm.arm_id, arm.safety.torque_enabled and not arm.safety.emergency_stop)
+        angles = self.angles.get(arm.arm_id, {})
+        goals = self.goals.get(arm.arm_id, angles)
         return [
             ServoState(
                 id=servo_id,
                 name=name,
-                angle=base + servo_id,
-                target_angle=base + servo_id + 0.5,
+                angle=angles.get(name, 0.0),
+                target_angle=goals.get(name, angles.get(name, 0.0)),
                 torque_enabled=torque_enabled,
                 temperature_c=32.0 + servo_id,
                 load_pct=10.0 + servo_id,
@@ -73,6 +87,16 @@ class FakeTelemetryBridge:
             )
             for servo_id, name in DEFAULT_SERVO_LAYOUT
         ]
+
+    def set_torque_enabled(self, arm: ArmRuntime, enabled: bool) -> None:
+        self.torque_enabled[arm.arm_id] = enabled
+
+    def write_joint_targets(self, arm: ArmRuntime, targets: dict[str, float]) -> None:
+        self.goals.setdefault(arm.arm_id, {}).update(targets)
+        angles = self.angles.setdefault(arm.arm_id, {})
+        for joint_name, target in targets.items():
+            current = angles.get(joint_name, target)
+            angles[joint_name] = current + (target - current) * 0.8
 
 
 class ApiSmokeTest(unittest.TestCase):
@@ -213,6 +237,8 @@ class ApiSmokeTest(unittest.TestCase):
         safety_update = self.client.post(
             "/api/arms/test_leader/safety",
             json={
+                "dry_run": False,
+                "torque_enabled": False,
                 "amplitude_scale": 0.74,
                 "speed_scale": 0.8,
                 "joint_overrides": [
@@ -228,10 +254,21 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(safety_update.status_code, 200)
         leader = next(arm for arm in safety_update.json()["arms"] if arm["arm_id"] == "test_leader")
         self.assertAlmostEqual(leader["safety"]["amplitude_scale"], 0.74, places=2)
+        self.assertFalse(leader["safety"]["dry_run"])
+        self.assertFalse(leader["safety"]["torque_enabled"])
         wrist_roll = next(joint for joint in leader["joints"] if joint["joint_name"] == "wrist_roll")
         self.assertFalse(wrist_roll["inverted"])
         self.assertAlmostEqual(wrist_roll["offset_degrees"], 7.5, places=2)
         self.assertAlmostEqual(wrist_roll["max_speed"], 0.7, places=2)
+
+        reenable = self.client.post(
+            "/api/arms/test_leader/safety",
+            json={"torque_enabled": True},
+        )
+        self.assertEqual(reenable.status_code, 200)
+        leader_live_again = next(arm for arm in reenable.json()["arms"] if arm["arm_id"] == "test_leader")
+        self.assertTrue(leader_live_again["safety"]["torque_enabled"])
+        self.assertTrue(all(servo["torque_enabled"] for servo in leader_live_again["telemetry"]))
 
         emergency_stop = self.client.post("/api/arms/emergency-stop")
         self.assertEqual(emergency_stop.status_code, 200)
@@ -244,9 +281,24 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertFalse(state_after_stop.json()["transport"]["playing"])
         self.assertTrue(all(not servo["torque_enabled"] for servo in state_after_stop.json()["servos"]))
 
+        reset = self.client.post("/api/arms/emergency-reset")
+        self.assertEqual(reset.status_code, 200)
+        self.assertFalse(reset.json()["execution"]["emergency_stop_active"])
+
+        follower_reenable = self.client.post(
+            "/api/arms/test_follower/safety",
+            json={"torque_enabled": True, "dry_run": False},
+        )
+        self.assertEqual(follower_reenable.status_code, 200)
+
         neutral = self.client.post("/api/arms/neutral")
         self.assertEqual(neutral.status_code, 200)
         self.assertEqual(neutral.json()["execution"]["neutral_pose_scene"], "idle")
+        follower_neutral = next(arm for arm in neutral.json()["arms"] if arm["arm_id"] == "test_follower")
+        follower_goals = {servo["name"]: servo["target_angle"] for servo in follower_neutral["telemetry"]}
+        self.assertAlmostEqual(follower_goals["shoulder_pan"], 0.0, places=1)
+        self.assertAlmostEqual(follower_goals["shoulder_lift"], -12.0, places=1)
+        self.assertAlmostEqual(follower_goals["elbow_flex"], 18.0, places=1)
 
         cache_files = list((Path(self.tempdir.name) / "analysis-cache" / "json" / "local").glob("*.json"))
         self.assertTrue(cache_files)

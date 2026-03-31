@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from time import sleep
 from typing import Any, Protocol
 
 try:
@@ -47,8 +48,20 @@ DEFAULT_JOINT_LAYOUT = [
     (6, "gripper"),
 ]
 
+NEUTRAL_JOINT_TARGETS = {
+    "shoulder_pan": 0.0,
+    "shoulder_lift": -12.0,
+    "elbow_flex": 18.0,
+    "wrist_flex": 0.0,
+    "wrist_roll": 0.0,
+    "gripper": 8.0,
+}
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_EXPECTED_JOINT_COUNT = len(DEFAULT_JOINT_LAYOUT)
+HEARTBEAT_TIMEOUT_SECONDS = 1.5
+NEUTRAL_TOLERANCE_DEGREES = 2.0
+MAX_NEUTRAL_COMMAND_STEPS = 18
 
 
 @dataclass
@@ -72,6 +85,12 @@ class ArmRuntime:
     verification: ArmVerificationState
     telemetry: ArmTelemetryRuntime = field(default_factory=ArmTelemetryRuntime)
     joints: list[ArmJointConfig] = field(default_factory=list)
+    last_command_at: str | None = None
+    last_command_error: str | None = None
+
+
+def clamp(value: float, lower: float, upper: float) -> float:
+    return min(upper, max(lower, value))
 
 
 class LeRobotArmVerifier:
@@ -259,6 +278,10 @@ class ArmHardwareBridge(Protocol):
 
     def read_telemetry(self, arm: ArmRuntime) -> list[ServoState]: ...
 
+    def set_torque_enabled(self, arm: ArmRuntime, enabled: bool) -> None: ...
+
+    def write_joint_targets(self, arm: ArmRuntime, targets: dict[str, float]) -> None: ...
+
 
 @dataclass
 class LeRobotBusSession:
@@ -314,6 +337,24 @@ class LeRobotHardwareBridge:
             for servo_id, joint_name in DEFAULT_JOINT_LAYOUT
         ]
 
+    def set_torque_enabled(self, arm: ArmRuntime, enabled: bool) -> None:
+        session = self.sessions.get(arm.arm_id)
+        if session is None:
+            raise RuntimeError(f"Arm '{arm.arm_id}' is not connected for safety control")
+
+        session.bus.sync_write(
+            "Torque_Enable",
+            {joint_name: 1 if enabled else 0 for _, joint_name in DEFAULT_JOINT_LAYOUT},
+            normalize=False,
+        )
+
+    def write_joint_targets(self, arm: ArmRuntime, targets: dict[str, float]) -> None:
+        session = self.sessions.get(arm.arm_id)
+        if session is None:
+            raise RuntimeError(f"Arm '{arm.arm_id}' is not connected for command writes")
+
+        session.bus.sync_write("Goal_Position", targets, normalize=True)
+
     def _build_session(self, arm: ArmRuntime) -> LeRobotBusSession:
         if not arm.port:
             raise RuntimeError(f"Arm '{arm.arm_id}' has no configured serial port")
@@ -360,6 +401,7 @@ class DualArmAdapter:
         self.execution_mode = ExecutionMode.MIRROR
         self.neutral_pose_scene = SceneName.IDLE
         self.required_dry_run = True
+        self.last_command_at: str | None = None
         self.arms: dict[str, ArmRuntime] = {}
         self.verifier = verifier or LeRobotArmVerifier()
         self.bridge = bridge or LeRobotHardwareBridge()
@@ -444,6 +486,8 @@ class DualArmAdapter:
                 self.bridge.connect(arm)
                 arm.connected = self.bridge.is_connected(arm)
                 self.refresh_telemetry(arm_id)
+                self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled and not arm.safety.emergency_stop)
+                self.refresh_telemetry(arm_id)
                 arm.notes = f"{arm.arm_id} is streaming live telemetry."
             except Exception as exc:
                 arm.connected = False
@@ -482,14 +526,44 @@ class DualArmAdapter:
 
         if arm.safety.emergency_stop:
             arm.safety.torque_enabled = False
+            if self.bridge.is_connected(arm):
+                self._apply_emergency_stop_to_arm(arm)
+            arm.notes = "Emergency stop engaged. Live writes are disabled."
+            return
+
+        if self.bridge.is_connected(arm) and (payload.torque_enabled is not None or payload.emergency_stop is not None):
+            self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled)
+            self.refresh_telemetry(arm_id)
+
+        arm.notes = (
+            f"Safety updated. Torque {'enabled' if arm.safety.torque_enabled else 'disabled'}; "
+            f"dry run {'on' if arm.safety.dry_run else 'off'}."
+        )
 
     def emergency_stop(self) -> None:
         for arm in self.arms.values():
             arm.safety.emergency_stop = True
             arm.safety.torque_enabled = False
+            if self.bridge.is_connected(arm):
+                self._apply_emergency_stop_to_arm(arm)
+            arm.notes = "Emergency stop engaged. Live writes are disabled."
+
+    def reset_emergency_stop(self) -> None:
+        for arm in self.arms.values():
+            arm.safety.emergency_stop = False
+            if self.bridge.is_connected(arm):
+                self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled)
+                self.refresh_telemetry(arm.arm_id)
+            arm.notes = "Emergency stop cleared. Re-enable torque before live motion."
 
     def neutralize(self) -> None:
         self.neutral_pose_scene = SceneName.IDLE
+        for arm in self.arms.values():
+            if not self.bridge.is_connected(arm):
+                continue
+            applied = self._write_safe_targets(arm, NEUTRAL_JOINT_TARGETS, reason="Neutral pose")
+            if applied:
+                arm.notes = "Moved toward neutral pose within live safety limits."
 
     def verify_all(self) -> None:
         for arm_id in self.arms:
@@ -575,7 +649,7 @@ class DualArmAdapter:
             execution=DualArmExecutionState(
                 mode=self.execution_mode,
                 choreography_ready=choreography_ready,
-                dry_run_required=self.required_dry_run,
+                dry_run_required=self._dry_run_required(),
                 emergency_stop_active=self.emergency_stop_active(),
                 neutral_pose_scene=self.neutral_pose_scene,
             ),
@@ -624,6 +698,115 @@ class DualArmAdapter:
             joint.max_angle = override.max_angle
         if override.max_speed is not None:
             joint.max_speed = override.max_speed
+
+    def _dry_run_required(self) -> bool:
+        connected = [arm for arm in self.arms.values() if arm.connected]
+        if not connected:
+            return True
+        return any(arm.safety.dry_run for arm in connected)
+
+    def _apply_emergency_stop_to_arm(self, arm: ArmRuntime) -> None:
+        try:
+            current = self.refresh_telemetry(arm.arm_id)
+            if current:
+                self.bridge.write_joint_targets(arm, {servo.name: servo.angle for servo in current})
+            self.bridge.set_torque_enabled(arm, False)
+            self.refresh_telemetry(arm.arm_id)
+            arm.last_command_at = datetime.now(UTC).isoformat()
+            arm.last_command_error = None
+        except Exception as exc:
+            arm.last_command_error = str(exc)
+            arm.notes = f"Emergency stop failed on {arm.arm_id}: {exc}"
+
+    def _write_safe_targets(
+        self,
+        arm: ArmRuntime,
+        targets: dict[str, float],
+        *,
+        reason: str,
+    ) -> bool:
+        if arm.safety.dry_run or arm.safety.emergency_stop or not arm.safety.torque_enabled:
+            return False
+        if not self.bridge.is_connected(arm):
+            return False
+
+        for _ in range(MAX_NEUTRAL_COMMAND_STEPS):
+            current_servos = self.refresh_telemetry(arm.arm_id)
+            if not current_servos:
+                return False
+            if not self._telemetry_is_fresh(arm):
+                arm.last_command_error = f"{arm.arm_id} telemetry heartbeat is stale."
+                arm.notes = arm.last_command_error
+                return False
+            current_map = {servo.name: servo for servo in current_servos}
+            safe_targets = self._limit_joint_targets(arm, current_map, targets)
+            if not safe_targets:
+                return True
+
+            self.bridge.write_joint_targets(arm, safe_targets)
+            arm.last_command_at = datetime.now(UTC).isoformat()
+            arm.last_command_error = None
+            self.last_command_at = arm.last_command_at
+            sleep(0.03)
+
+            latest_servos = self.refresh_telemetry(arm.arm_id)
+            if self._targets_reached(arm, {servo.name: servo for servo in latest_servos}, targets):
+                return True
+
+        arm.notes = f"{reason} stopped at step limit. Run again if more settling is needed."
+        return True
+
+    def _limit_joint_targets(
+        self,
+        arm: ArmRuntime,
+        current: dict[str, ServoState],
+        targets: dict[str, float],
+    ) -> dict[str, float]:
+        safe_targets: dict[str, float] = {}
+        for joint in arm.joints:
+            if joint.joint_name not in targets:
+                continue
+
+            current_servo = current.get(joint.joint_name)
+            if current_servo is None:
+                continue
+
+            requested = targets[joint.joint_name]
+            desired = (-requested if joint.inverted else requested) + joint.offset_degrees
+            desired = clamp(desired, joint.min_angle, joint.max_angle)
+
+            max_step = max(1.0, arm.safety.max_step_degrees * joint.max_speed * arm.safety.speed_scale)
+            delta = clamp(desired - current_servo.angle, -max_step, max_step)
+            stepped = round(current_servo.angle + delta, 2)
+
+            if abs(desired - current_servo.angle) <= NEUTRAL_TOLERANCE_DEGREES:
+                continue
+
+            safe_targets[joint.joint_name] = stepped
+
+        return safe_targets
+
+    def _targets_reached(self, arm: ArmRuntime, current: dict[str, ServoState], targets: dict[str, float]) -> bool:
+        joint_map = {joint.joint_name: joint for joint in arm.joints}
+        for joint_name, requested in targets.items():
+            servo = current.get(joint_name)
+            if servo is None:
+                continue
+            joint = joint_map.get(joint_name)
+            desired = requested
+            if joint is not None:
+                desired = (-requested if joint.inverted else requested) + joint.offset_degrees
+                desired = clamp(desired, joint.min_angle, joint.max_angle)
+            if abs(servo.angle - desired) > NEUTRAL_TOLERANCE_DEGREES:
+                return False
+        return True
+
+    def _telemetry_is_fresh(self, arm: ArmRuntime) -> bool:
+        if not arm.telemetry.updated_at:
+            return False
+        updated_at = datetime.fromisoformat(arm.telemetry.updated_at)
+        age = (datetime.now(UTC) - updated_at).total_seconds()
+        return age <= HEARTBEAT_TIMEOUT_SECONDS
 
     def _arm(self, arm_id: str) -> ArmRuntime:
         arm = self.arms.get(arm_id)

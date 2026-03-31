@@ -135,12 +135,20 @@ These contracts started ahead of the implementation. The real backend analysis p
 }
 ```
 - Response: `DualArmState`
+- When the arm is connected, torque changes are applied to the live Feetech bus immediately
+- Live target writes remain blocked while `dry_run=true`
 
 ### `POST /api/arms/emergency-stop`
 - Response: `DualArmState`
+- Immediately disables live torque on every connected arm and blocks further live writes
+
+### `POST /api/arms/emergency-reset`
+- Response: `DualArmState`
+- Clears the emergency-stop latch so torque can be re-enabled arm by arm
 
 ### `POST /api/arms/neutral`
 - Response: `DualArmState`
+- When a connected arm is live-enabled, the backend steps it toward the neutral scene through the same joint limits and max-step guard used by the live write path
 
 ## Canonical Models
 
