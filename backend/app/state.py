@@ -407,6 +407,11 @@ class RobotStateStore:
         self._sync_follower_torque_state()
         return self.arms_snapshot()
 
+    def reset_arm_state(self, arm_id: str) -> DualArmState:
+        self.arm_adapter.reset_arm_state(arm_id)
+        self._sync_follower_torque_state()
+        return self.arms_snapshot()
+
     def emergency_stop(self) -> DualArmState:
         self.arm_adapter.emergency_stop()
         self.transport.playing = False

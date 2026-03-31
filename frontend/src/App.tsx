@@ -8,6 +8,7 @@ import {
   fetchMovementLibrary,
   fetchState,
   moveArmsToNeutral,
+  resetArmState,
   runMovement,
   resetEmergencyStop,
   searchTracks,
@@ -364,6 +365,19 @@ function App() {
     [],
   );
 
+  const handleResetArmState = useCallback(async (armId: string) => {
+    setHardwareActionBusy(`${armId}:reset-state`);
+    try {
+      await resetArmState(armId);
+      await refreshState();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to reset arm state");
+    } finally {
+      setHardwareActionBusy(null);
+    }
+  }, []);
+
   const handleGlobalArmAction = useCallback(
     async (action: "neutral" | "emergency-stop" | "emergency-reset") => {
       setHardwareActionBusy(action);
@@ -688,6 +702,7 @@ function App() {
             onResetArmEmergencyStop={(armId) =>
               void handleUpdateArmSafety(armId, { emergency_stop: false }, `${armId}:reset-estop`)
             }
+            onResetArmState={(armId) => void handleResetArmState(armId)}
             onNeutralAll={() => void handleGlobalArmAction("neutral")}
             onEmergencyStop={() => void handleGlobalArmAction("emergency-stop")}
             onEmergencyReset={() => void handleGlobalArmAction("emergency-reset")}

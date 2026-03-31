@@ -293,6 +293,35 @@ class ApiSmokeTest(unittest.TestCase):
         )
         self.assertEqual(follower_reenable.status_code, 200)
 
+        mutated = self.client.post(
+            "/api/arms/test_follower/safety",
+            json={
+                "dry_run": False,
+                "torque_enabled": False,
+                "amplitude_scale": 1.45,
+                "joint_overrides": [{"joint_name": "shoulder_pan", "offset_degrees": 11.0}],
+            },
+        )
+        self.assertEqual(mutated.status_code, 200)
+
+        reset_arm = self.client.post("/api/arms/test_follower/reset-state")
+        self.assertEqual(reset_arm.status_code, 200)
+        reset_follower = next(arm for arm in reset_arm.json()["arms"] if arm["arm_id"] == "test_follower")
+        self.assertTrue(reset_follower["connected"])
+        self.assertTrue(reset_follower["telemetry_live"])
+        self.assertTrue(reset_follower["safety"]["dry_run"])
+        self.assertTrue(reset_follower["safety"]["torque_enabled"])
+        self.assertAlmostEqual(reset_follower["safety"]["amplitude_scale"], 1.0, places=2)
+        reset_joint = next(joint for joint in reset_follower["joints"] if joint["joint_name"] == "shoulder_pan")
+        self.assertAlmostEqual(reset_joint["offset_degrees"], 0.0, places=2)
+        self.assertTrue(all(servo["torque_enabled"] for servo in reset_follower["telemetry"]))
+
+        follower_live_after_reset = self.client.post(
+            "/api/arms/test_follower/safety",
+            json={"torque_enabled": True, "dry_run": False},
+        )
+        self.assertEqual(follower_live_after_reset.status_code, 200)
+
         neutral = self.client.post("/api/arms/neutral")
         self.assertEqual(neutral.status_code, 200)
         self.assertEqual(neutral.json()["execution"]["neutral_pose_scene"], "idle")
@@ -320,7 +349,7 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(run_wave.json()["active"]["preset_id"], "normal")
 
         completed = None
-        for _ in range(140):
+        for _ in range(240):
             snapshot = self.client.get("/api/movements")
             self.assertEqual(snapshot.status_code, 200)
             active = snapshot.json()["active"]

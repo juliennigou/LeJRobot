@@ -73,6 +73,12 @@ export function updateArmSafety(
   });
 }
 
+export function resetArmState(armId: string) {
+  return request<DualArmState>(`/api/arms/${armId}/reset-state`, {
+    method: "POST",
+  });
+}
+
 export function triggerEmergencyStop() {
   return request<DualArmState>("/api/arms/emergency-stop", {
     method: "POST",
