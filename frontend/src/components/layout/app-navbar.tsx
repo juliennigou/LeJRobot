@@ -1,7 +1,6 @@
 import { Menu, Music2, Radio, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 export type AppView = "home" | "performance" | "analysis" | "movements" | "robot";
@@ -54,11 +53,6 @@ export function AppNavbar({
               </Button>
             ))}
           </nav>
-
-          <div className="hidden items-center gap-3 lg:flex">
-            <Badge variant="muted">Responsive UI</Badge>
-            <Badge variant="accent">shadcn surface</Badge>
-          </div>
 
           <Button
             variant="ghost"

@@ -162,17 +162,21 @@ export function WaveformConsole({
   const activePhrase =
     schedule?.phrases.find((phrase) => currentTime >= phrase.start_seconds && currentTime < phrase.end_seconds) ?? null;
   return (
-    <section className="rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(7,13,24,0.94),rgba(4,8,16,0.98))] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)]">
+    <section
+      className={`rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(7,13,24,0.94),rgba(4,8,16,0.98))] shadow-[0_30px_80px_rgba(0,0,0,0.35)] ${
+        compact ? "overflow-hidden p-0" : "p-6"
+      }`}
+    >
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge>{compact ? "Performance Timeline" : "Waveform Console"}</Badge>
-            {schedule ? <Badge variant="muted">{schedule.phrase_count} phrases</Badge> : null}
-            {!compact ? <Badge variant="muted">{track?.source ?? "no source"}</Badge> : null}
-            {!compact ? <Badge variant="accent">{ready ? "Preview Ready" : track ? "Loading Preview" : "Waiting on Track"}</Badge> : null}
-          </div>
-          {!compact ? (
-            <>
+        {compact ? null : (
+          <>
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge>Waveform Console</Badge>
+                {schedule ? <Badge variant="muted">{schedule.phrase_count} phrases</Badge> : null}
+                <Badge variant="muted">{track?.source ?? "no source"}</Badge>
+                <Badge variant="accent">{ready ? "Preview Ready" : track ? "Loading Preview" : "Waiting on Track"}</Badge>
+              </div>
               <h2 className="mt-4 text-3xl font-semibold text-white sm:text-4xl">
                 {track ? `${track.title} - ${track.artist}` : "Select a track to inspect the waveform"}
               </h2>
@@ -180,30 +184,45 @@ export function WaveformConsole({
                 The waveform is now the main playback surface. Beat markers, downbeats, and section boundaries are derived
                 from the backend analysis payload so this view stays aligned with the choreography timeline.
               </p>
-            </>
-          ) : null}
-        </div>
+            </div>
 
-        <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
-          <ConsoleStat label="Time" value={formatClock(currentTime)} />
-          <ConsoleStat label="Duration" value={formatClock(duration)} />
-          {!compact ? <ConsoleStat label="Ready" value={ready ? "yes" : "loading"} /> : null}
-        </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <ConsoleStat label="Time" value={formatClock(currentTime)} />
+              <ConsoleStat label="Duration" value={formatClock(duration)} />
+              <ConsoleStat label="Ready" value={ready ? "yes" : "loading"} />
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="mt-6 rounded-[28px] border border-white/10 bg-black/25 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2">
-              <Waves className="h-4 w-4 text-primary" />
-              {schedule ? "Scheduler overlaid on audio timeline" : "Audio timeline"}
-            </span>
-          </div>
+      <div className={`${compact ? "" : "mt-6 rounded-[28px] border border-white/10 bg-black/25 p-5"}`}>
+        <div className={`flex flex-wrap items-center justify-between gap-3 ${compact ? "border-b border-white/10 px-5 py-4 sm:px-6" : ""}`}>
+          {compact ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
+                <Waves className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-white">{track?.title ?? "Performance timeline"}</p>
+                <p className="truncate text-xs uppercase tracking-[0.18em] text-slate-400">
+                  {schedule ? `${schedule.phrase_count} phrases programmed` : "timeline waiting on schedule"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2">
+                <Waves className="h-4 w-4 text-primary" />
+                {schedule ? "Scheduler overlaid on audio timeline" : "Audio timeline"}
+              </span>
+            </div>
+          )}
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="secondary"
               disabled={!track?.audio_url || !ready}
+              className={compact ? "rounded-full px-4" : undefined}
               onClick={() => {
                 if (compact && mediaElement) {
                   if (mediaElement.paused) {
@@ -222,6 +241,7 @@ export function WaveformConsole({
             <Button
               variant="ghost"
               disabled={!track?.audio_url}
+              className={compact ? "rounded-full px-4" : undefined}
               onClick={() => {
                 if (compact && mediaElement) {
                   mediaElement.pause();
@@ -240,10 +260,16 @@ export function WaveformConsole({
           </div>
         </div>
 
-        <div className="relative mt-6 overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,31,0.92),rgba(6,11,21,0.98))] px-4 py-5">
+        <div
+          className={`relative overflow-hidden ${
+            compact
+              ? "bg-[linear-gradient(180deg,rgba(10,18,31,0.98),rgba(5,9,17,1))] px-5 py-5 sm:px-6"
+              : "mt-6 rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,31,0.92),rgba(6,11,21,0.98))] px-4 py-5"
+          }`}
+        >
           <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,rgba(126,190,255,0.14),transparent)]" />
           {schedule?.phrases.length ? (
-            <div className="pointer-events-none absolute inset-x-4 top-4 z-30">
+            <div className={`pointer-events-none absolute z-30 ${compact ? "inset-x-5 top-5 sm:inset-x-6" : "inset-x-4 top-4"}`}>
               <div className="rounded-[18px] border border-white/10 bg-black/45 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.3)] backdrop-blur-sm">
                 <div className="relative h-14 overflow-hidden rounded-[14px] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))]">
                   {schedule.phrases.map((phrase) => {
@@ -288,7 +314,7 @@ export function WaveformConsole({
               </div>
             </div>
           ) : null}
-          <div className="pointer-events-none absolute inset-y-6 left-4 right-4 z-20">
+          <div className={`pointer-events-none absolute inset-y-6 z-20 ${compact ? "left-5 right-5 sm:left-6 sm:right-6" : "left-4 right-4"}`}>
             {!compact
               ? analysis?.beats.map((beat, index) => {
                   const isDownbeat = analysis.downbeats.some((downbeat) => Math.abs(downbeat - beat) < 0.03);
@@ -311,7 +337,7 @@ export function WaveformConsole({
           <div ref={containerRef} className="relative z-10 min-h-[220px]" />
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+        <div className={`flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400 ${compact ? "border-t border-white/10 px-5 py-4 sm:px-6" : "mt-4"}`}>
           <div className="flex flex-wrap items-center gap-4">
             <span>0:00</span>
             <div className="h-px w-24 bg-white/10 sm:w-40" />
