@@ -178,9 +178,42 @@ class ApiSmokeTest(unittest.TestCase):
         expected_spectrum = self._expected_spectrum_prefix(payload)
         self.assertEqual(state_payload["spectrum"][:3], expected_spectrum)
         self.assertIsNotNone(state_payload["schedule"])
-        self.assertGreater(state_payload["schedule"]["phrase_count"], 0)
-        self.assertEqual(len(state_payload["dual_arm"]["arms"]), 2)
-        self.assertEqual(state_payload["dual_arm"]["execution"]["mode"], "mirror")
+
+    def test_transport_external_clock_heartbeat_prevents_drift(self) -> None:
+        audio = self._fixture_wav()
+        upload = self.client.post("/api/tracks/upload", files={"file": ("fixture.wav", audio, "audio/wav")})
+        self.assertEqual(upload.status_code, 200)
+        track = upload.json()
+
+        select = self.client.post("/api/tracks/select", json={"track": track, "autoplay": False})
+        self.assertEqual(select.status_code, 200)
+
+        analysis_start = self.client.post(
+            "/api/analysis/start",
+            json={"track_id": track["track_id"], "source": track["source"]},
+        )
+        self.assertEqual(analysis_start.status_code, 200)
+
+        heartbeat = self.client.post(
+            "/api/transport",
+            json={
+                "track_name": f"{track['title']} - {track['artist']}",
+                "bpm": 128,
+                "energy": 0.5,
+                "playing": True,
+                "position_seconds": 12.5,
+            },
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        time.sleep(0.15)
+        snapshot = self.client.get("/api/state")
+        self.assertEqual(snapshot.status_code, 200)
+        snapshot_payload = snapshot.json()
+        self.assertAlmostEqual(snapshot_payload["transport"]["position_seconds"], 12.5, delta=0.25)
+        self.assertGreater(snapshot_payload["schedule"]["phrase_count"], 0)
+        self.assertEqual(len(snapshot_payload["dual_arm"]["arms"]), 2)
+        self.assertEqual(snapshot_payload["dual_arm"]["execution"]["mode"], "mirror")
 
         choreography = self.client.get(f"/api/choreography/{track['source']}/{track['track_id']}")
         self.assertEqual(choreography.status_code, 200)
@@ -478,6 +511,22 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertIsNotNone(autonomy_running)
         self.assertIn(autonomy_running["current_phrase"]["movement_id"], {"wave", "wrist_lean"})
         self.assertIn(autonomy_running["current_phrase"]["execution_mode"], {"mirror", "unison"})
+
+        paused = self.client.post(
+            "/api/transport",
+            json={
+                "track_name": state_live["transport"]["track_name"],
+                "bpm": state_live["transport"]["bpm"],
+                "energy": state_live["transport"]["energy"],
+                "playing": False,
+                "position_seconds": state_live["transport"]["position_seconds"],
+            },
+        )
+        self.assertEqual(paused.status_code, 200)
+        paused_payload = paused.json()
+        self.assertFalse(paused_payload["transport"]["playing"])
+        self.assertEqual(paused_payload["autonomy"]["status"], "armed")
+        self.assertEqual(paused_payload["movement_library"]["active"]["status"], "stopped")
 
         autonomy_stop = self.client.post("/api/autonomy/stop")
         self.assertEqual(autonomy_stop.status_code, 200)

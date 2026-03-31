@@ -45,6 +45,7 @@ import { HardwareStatusDashboard } from "@/components/hardware/hardware-status-d
 import { AppNavbar, type AppView } from "@/components/layout/app-navbar";
 import { WaveformConsole } from "@/components/music/waveform-console";
 import { MovementLibraryPage } from "@/components/movements/movement-library-page";
+import { PerformancePage } from "@/components/performance/performance-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,6 +127,16 @@ function App() {
   const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft | null>(null);
   const [scheduleBusyAction, setScheduleBusyAction] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const previewPositionRef = useRef(0);
+  const previewPlayingRef = useRef(false);
+  const transportSyncInFlightRef = useRef(false);
+  const transportSyncQueuedRef = useRef<{
+    track_name: string;
+    bpm: number;
+    energy: number;
+    playing: boolean;
+    position_seconds: number;
+  } | null>(null);
 
   const refreshState = async () => {
     try {
@@ -224,16 +235,28 @@ function App() {
     };
 
     void boot();
+  }, []);
+
+  useEffect(() => {
+    const intervalMs = state?.transport.playing || state?.autonomy.status === "running" ? 250 : 1400;
     const interval = window.setInterval(() => {
       void refreshState();
-    }, 1400);
+    }, intervalMs);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [state?.autonomy.status, state?.transport.playing]);
 
   const currentTrack = state?.transport.current_track ?? null;
   const currentSchedule = state?.schedule ?? null;
   const movementLibrary = state?.movement_library ?? null;
+
+  useEffect(() => {
+    previewPositionRef.current = previewPositionSeconds;
+  }, [previewPositionSeconds]);
+
+  useEffect(() => {
+    previewPlayingRef.current = previewPlaying;
+  }, [previewPlaying]);
 
   useEffect(() => {
     const config: ScheduleConfig | undefined | null = currentSchedule?.config;
@@ -331,38 +354,89 @@ function App() {
     };
   }, [currentTrack?.track_id, currentTrack?.source]);
 
+  useEffect(() => {
+    if (!currentTrack || activeView !== "performance") {
+      return;
+    }
+
+    const backendPosition = state?.transport.position_seconds ?? 0;
+
+    if (!previewPlayingRef.current && Math.abs(previewPositionRef.current - backendPosition) > 0.2) {
+      setPreviewPositionSeconds(backendPosition);
+    }
+
+    if (!(state?.transport.playing ?? false) && state?.autonomy.status === "idle" && backendPosition === 0 && previewPositionRef.current !== 0) {
+      setPreviewPositionSeconds(0);
+    }
+  }, [
+    activeView,
+    currentTrack,
+    state?.autonomy.status,
+    state?.transport.playing,
+    state?.transport.position_seconds,
+  ]);
+
   const bpm = analysis ? analysis.bpm : (state?.transport.bpm ?? 120);
   const energy = analysis ? average(analysis.energy.rms) : (state?.transport.energy ?? 0.5);
-  const positionSeconds = currentTrack ? previewPositionSeconds : (state?.transport.position_seconds ?? 0);
+  const positionSeconds = activeView === "performance" ? previewPositionSeconds : (state?.transport.position_seconds ?? previewPositionSeconds);
   const cueSummary = choreography ?? analysis?.choreography ?? null;
-  const transportPlaying = currentTrack ? previewPlaying : (state?.transport.playing ?? false);
+  const transportPlaying = activeView === "performance" ? previewPlaying : (state?.transport.playing ?? previewPlaying);
 
   const syncTransportPlayback = useCallback(
-    async (playing: boolean) => {
+    async (playing: boolean, nextPositionSeconds = previewPositionRef.current) => {
       if (!currentTrack) {
         setPreviewPlaying(false);
         return;
       }
 
+      const position = Math.max(0, nextPositionSeconds);
       setPreviewPlaying(playing);
+      setPreviewPositionSeconds(position);
+
+      transportSyncQueuedRef.current = {
+        track_name: `${currentTrack.title} - ${currentTrack.artist}`,
+        bpm: Math.max(40, Math.min(220, Math.round(bpm))),
+        energy: Math.max(0, Math.min(1, energy)),
+        playing,
+        position_seconds: position,
+      };
+
+      if (transportSyncInFlightRef.current) {
+        return;
+      }
+
+      transportSyncInFlightRef.current = true;
 
       try {
-        const next = await setTransport({
-          track_name: `${currentTrack.title} - ${currentTrack.artist}`,
-          bpm: Math.max(40, Math.min(220, Math.round(bpm))),
-          energy: Math.max(0, Math.min(1, energy)),
-          playing,
-        });
-        startTransition(() => {
-          setState(next);
-        });
-        setError(null);
+        while (transportSyncQueuedRef.current) {
+          const pending = transportSyncQueuedRef.current;
+          transportSyncQueuedRef.current = null;
+          const next = await setTransport(pending);
+          startTransition(() => {
+            setState(next);
+          });
+          setError(null);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to update transport");
+      } finally {
+        transportSyncInFlightRef.current = false;
       }
     },
     [bpm, currentTrack, energy],
   );
+
+  useEffect(() => {
+    if (!currentTrack || !previewPlaying) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void syncTransportPlayback(true, previewPositionRef.current);
+    }, 160);
+
+    return () => window.clearInterval(interval);
+  }, [currentTrack, previewPlaying, syncTransportPlayback]);
 
   const handleVerifyHardware = useCallback(async () => {
     setVerifyingHardware(true);
@@ -560,9 +634,12 @@ function App() {
   const handleStartAutonomy = useCallback(async () => {
     setAutonomyBusy(true);
     try {
+      setPreviewPositionSeconds(0);
+      setPreviewPlaying(true);
       await commitAction(() => startAutonomy());
       setError(null);
     } catch (err) {
+      setPreviewPlaying(false);
       setError(err instanceof Error ? err.message : "Unable to start autonomous playback");
     } finally {
       setAutonomyBusy(false);
@@ -572,6 +649,8 @@ function App() {
   const handleStopAutonomy = useCallback(async () => {
     setAutonomyBusy(true);
     try {
+      setPreviewPlaying(false);
+      setPreviewPositionSeconds(0);
       await commitAction(() => stopAutonomy());
       setError(null);
     } catch (err) {
@@ -764,6 +843,7 @@ function App() {
             <WaveformConsole
               track={currentTrack}
               analysis={analysis}
+              schedule={currentSchedule}
               currentTime={positionSeconds}
               transportPlaying={transportPlaying}
               onTimeChange={setPreviewPositionSeconds}
@@ -861,6 +941,34 @@ function App() {
               </Tabs>
             </CardContent>
           </Card>
+        ) : null}
+
+        {activeView === "performance" ? (
+          <PerformancePage
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            onSearch={() => void runSearch(searchQuery)}
+            searching={searching}
+            searchError={searchError}
+            results={searchDropdownResults}
+            currentTrack={currentTrack}
+            analysis={analysis}
+            analysisStatus={analysisStatus}
+            schedule={currentSchedule}
+            autonomy={state?.autonomy ?? { status: "idle", note: "Autonomous scheduler idle." }}
+            autonomyBusy={autonomyBusy}
+            currentTime={positionSeconds}
+            transportPlaying={transportPlaying}
+            onTimeChange={setPreviewPositionSeconds}
+            onTransportChange={syncTransportPlayback}
+            onSelectTrack={(track) => {
+              setSearchQuery(track.title);
+              setSearchResults([]);
+              void commitAction(() => selectTrack(track, true));
+            }}
+            onStartAutonomy={() => void handleStartAutonomy()}
+            onStopAutonomy={() => void handleStopAutonomy()}
+          />
         ) : null}
 
         {activeView === "movements" ? (

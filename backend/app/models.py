@@ -403,6 +403,7 @@ class TransportUpdate(BaseModel):
     bpm: float = Field(ge=40, le=220)
     energy: float = Field(ge=0.0, le=1.0)
     playing: bool = True
+    position_seconds: float | None = Field(default=None, ge=0.0)
 
 
 class SceneUpdate(BaseModel):
