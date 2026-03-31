@@ -10,6 +10,7 @@ The delivery sequence is:
 
 ## Active Epic
 - `#28` Phase 2: real dual-arm SO-101 execution for leader + follower
+- `#52` Add follow-through motion layer for live movements
 
 ## Ticket Stack
 - `#10` Define audio analysis models and API contracts for dual-arm choreography [done]
@@ -31,7 +32,7 @@ The delivery sequence is:
 - `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#33`
+- Current PR target: `#52`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -48,6 +49,7 @@ The delivery sequence is:
   - `#34` now adds a movement library abstraction and live oscillator-driven gestures for one arm, including `wave` and `wrist_lean`
   - `#45` now adds terminal-first tooling to record manual SO-101 joint demonstrations, replay them through the existing safety path, and fit a cleaner wave preset from recordings
   - `#33` now adds synchronized movement playback for both arms with `single`, `both-unison`, and `both-mirror` targeting
+  - `#52` adds a follow-through layer on top of oscillator motions so distal joints can react with tunable delay, gain, damping, and settling
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
@@ -60,6 +62,7 @@ The delivery sequence is:
   - `#30` added dashboard controls for dry-run, torque, neutral, and emergency-stop management
   - `#34` adds a dedicated Movement Library page with arm selection, per-movement tuning, and live gesture execution
   - `#33` extends the Movement Library page with single-arm vs dual-arm targeting and `mirror` / `unison` playback controls
+  - `#52` extends movement presets and UI tuning with follow-through controls so fluidity can be tuned before live execution
   - `#45` adds terminal scripts for record/replay/fitting so manual observations can drive later motion refinement outside the UI
   - Music-driven choreography execution is not implemented yet, but the app can now execute a bounded library gesture on one live arm
 

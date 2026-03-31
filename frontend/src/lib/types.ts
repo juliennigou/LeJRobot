@@ -261,6 +261,24 @@ export interface MovementJointProfile {
   bias: number;
 }
 
+export interface MovementFollowThroughProfile {
+  joint_name: string;
+  source_joint: string;
+  gain_ratio: number;
+  delay_ratio: number;
+  damping_ratio: number;
+  settle_ratio: number;
+}
+
+export interface MovementFollowThroughConfig {
+  enabled: boolean;
+  delay_seconds: number;
+  gain: number;
+  damping: number;
+  settle: number;
+  profiles: MovementFollowThroughProfile[];
+}
+
 export interface MovementPreset {
   preset_id: string;
   label: string;
@@ -271,6 +289,7 @@ export interface MovementPreset {
   softness: number;
   asymmetry: number;
   joint_profiles: MovementJointProfile[];
+  follow_through: MovementFollowThroughConfig;
 }
 
 export interface MovementRunState {

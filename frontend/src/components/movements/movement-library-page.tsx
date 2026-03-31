@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 
 const JOINT_GUIDE = [
   { name: "Shoulder Pan", role: "Sweeps the whole arm left and right." },
@@ -50,6 +51,11 @@ export function MovementLibraryPage({
   onAmplitudeScaleChange,
   onSoftnessChange,
   onAsymmetryChange,
+  onFollowThroughEnabledChange,
+  onFollowThroughDelayChange,
+  onFollowThroughGainChange,
+  onFollowThroughDampingChange,
+  onFollowThroughSettleChange,
   onRunMovement,
   onStopMovement,
 }: {
@@ -67,6 +73,11 @@ export function MovementLibraryPage({
       amplitudeScale: number;
       softness: number;
       asymmetry: number;
+      followThroughEnabled: boolean;
+      followThroughDelaySeconds: number;
+      followThroughGain: number;
+      followThroughDamping: number;
+      followThroughSettle: number;
     }
   >;
   busyAction: string | null;
@@ -79,6 +90,11 @@ export function MovementLibraryPage({
   onAmplitudeScaleChange: (movementId: string, value: number) => void;
   onSoftnessChange: (movementId: string, value: number) => void;
   onAsymmetryChange: (movementId: string, value: number) => void;
+  onFollowThroughEnabledChange: (movementId: string, value: boolean) => void;
+  onFollowThroughDelayChange: (movementId: string, value: number) => void;
+  onFollowThroughGainChange: (movementId: string, value: number) => void;
+  onFollowThroughDampingChange: (movementId: string, value: number) => void;
+  onFollowThroughSettleChange: (movementId: string, value: number) => void;
   onRunMovement: (movementId: string) => void;
   onStopMovement: () => void;
 }) {
@@ -253,6 +269,9 @@ export function MovementLibraryPage({
               const phaseChain = selectedPreset?.joint_profiles
                 .map((profile) => `${titleize(profile.joint_name)} ${profile.phase_delay_radians.toFixed(2)}rad`)
                 .join(" -> ");
+              const followThroughChain = selectedPreset?.follow_through.profiles
+                .map((profile) => `${titleize(profile.source_joint)} → ${titleize(profile.joint_name)}`)
+                .join(" • ");
 
               return (
                 <div
@@ -381,6 +400,67 @@ export function MovementLibraryPage({
                         />
                       </div>
 
+                      <div className="grid gap-4 rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">Follow-Through Layer</p>
+                            <p className="mt-1 text-sm text-slate-400">
+                              Add delayed reactive motion so the gesture settles and propagates through the arm.
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge variant={tuning.followThroughEnabled ? "accent" : "muted"}>
+                              {tuning.followThroughEnabled ? "Enabled" : "Disabled"}
+                            </Badge>
+                            <Switch
+                              checked={tuning.followThroughEnabled}
+                              onCheckedChange={(value) => onFollowThroughEnabledChange(movement.movement_id, value)}
+                            />
+                          </div>
+                        </div>
+
+                        {tuning.followThroughEnabled ? (
+                          <div className="grid gap-4 xl:grid-cols-2">
+                            <TuningSlider
+                              label="Delay"
+                              value={tuning.followThroughDelaySeconds}
+                              display={`${tuning.followThroughDelaySeconds.toFixed(2)} s`}
+                              min={0}
+                              max={0.35}
+                              step={0.01}
+                              onChange={(value) => onFollowThroughDelayChange(movement.movement_id, value)}
+                            />
+                            <TuningSlider
+                              label="Gain"
+                              value={tuning.followThroughGain}
+                              display={tuning.followThroughGain.toFixed(2)}
+                              min={0}
+                              max={0.8}
+                              step={0.01}
+                              onChange={(value) => onFollowThroughGainChange(movement.movement_id, value)}
+                            />
+                            <TuningSlider
+                              label="Damping"
+                              value={tuning.followThroughDamping}
+                              display={tuning.followThroughDamping.toFixed(2)}
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              onChange={(value) => onFollowThroughDampingChange(movement.movement_id, value)}
+                            />
+                            <TuningSlider
+                              label="Settle"
+                              value={tuning.followThroughSettle}
+                              display={tuning.followThroughSettle.toFixed(2)}
+                              min={0}
+                              max={0.5}
+                              step={0.01}
+                              onChange={(value) => onFollowThroughSettleChange(movement.movement_id, value)}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+
                       <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
                         <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
                           <p className="text-sm font-semibold text-white">Prepared Base Pose</p>
@@ -402,6 +482,9 @@ export function MovementLibraryPage({
                             Proximal joints start first; distal joints finish the gesture.
                           </p>
                           <p className="mt-3 text-sm text-slate-200">{phaseChain ?? "No preset selected."}</p>
+                          {followThroughChain ? (
+                            <p className="mt-3 text-xs text-slate-400">Follow-through: {followThroughChain}</p>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -477,6 +560,11 @@ function defaultMovementTuning(movement: MovementDefinition) {
     amplitudeScale: preset?.amplitude_scale ?? 1,
     softness: preset?.softness ?? 0.72,
     asymmetry: preset?.asymmetry ?? 0,
+    followThroughEnabled: preset?.follow_through?.enabled ?? true,
+    followThroughDelaySeconds: preset?.follow_through?.delay_seconds ?? 0.12,
+    followThroughGain: preset?.follow_through?.gain ?? 0.2,
+    followThroughDamping: preset?.follow_through?.damping ?? 0.4,
+    followThroughSettle: preset?.follow_through?.settle ?? 0.14,
   };
 }
 

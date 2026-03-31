@@ -115,6 +115,11 @@ export function runMovement(
     amplitude_scale?: number;
     softness?: number;
     asymmetry?: number;
+    follow_through_enabled?: boolean;
+    follow_through_delay_seconds?: number;
+    follow_through_gain?: number;
+    follow_through_damping?: number;
+    follow_through_settle?: number;
   },
 ) {
   return request<MovementLibraryState>("/api/movements/run", {

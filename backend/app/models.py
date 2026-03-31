@@ -258,6 +258,24 @@ class MovementJointProfile(BaseModel):
     bias: float = Field(default=0.0, ge=-90.0, le=90.0)
 
 
+class MovementFollowThroughProfile(BaseModel):
+    joint_name: str
+    source_joint: str
+    gain_ratio: float = Field(default=1.0, ge=0.0, le=2.0)
+    delay_ratio: float = Field(default=1.0, ge=0.0, le=2.0)
+    damping_ratio: float = Field(default=1.0, ge=0.0, le=2.0)
+    settle_ratio: float = Field(default=1.0, ge=0.0, le=2.0)
+
+
+class MovementFollowThroughConfig(BaseModel):
+    enabled: bool = True
+    delay_seconds: float = Field(default=0.12, ge=0.0, le=0.6)
+    gain: float = Field(default=0.2, ge=0.0, le=1.2)
+    damping: float = Field(default=0.4, ge=0.0, le=1.0)
+    settle: float = Field(default=0.14, ge=0.0, le=0.8)
+    profiles: list[MovementFollowThroughProfile] = Field(default_factory=list)
+
+
 class MovementPreset(BaseModel):
     preset_id: str
     label: str
@@ -268,6 +286,7 @@ class MovementPreset(BaseModel):
     softness: float = Field(default=0.7, ge=0.0, le=1.0)
     asymmetry: float = Field(default=0.0, ge=0.0, le=1.0)
     joint_profiles: list[MovementJointProfile] = Field(default_factory=list)
+    follow_through: MovementFollowThroughConfig = Field(default_factory=MovementFollowThroughConfig)
 
 
 class MovementRunState(BaseModel):
@@ -373,6 +392,11 @@ class MovementRunRequest(BaseModel):
     amplitude_scale: float | None = Field(default=None, ge=0.2, le=2.5)
     softness: float | None = Field(default=None, ge=0.0, le=1.0)
     asymmetry: float | None = Field(default=None, ge=0.0, le=1.0)
+    follow_through_enabled: bool | None = None
+    follow_through_delay_seconds: float | None = Field(default=None, ge=0.0, le=0.6)
+    follow_through_gain: float | None = Field(default=None, ge=0.0, le=1.2)
+    follow_through_damping: float | None = Field(default=None, ge=0.0, le=1.0)
+    follow_through_settle: float | None = Field(default=None, ge=0.0, le=0.8)
     debug: bool = False
 
 

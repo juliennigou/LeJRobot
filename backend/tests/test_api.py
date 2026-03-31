@@ -346,6 +346,7 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(wave_definition["controller"], "oscillator")
         self.assertEqual(wave_definition["default_preset_id"], "normal")
         self.assertEqual(len(wave_definition["presets"]), 3)
+        self.assertTrue(wave_definition["presets"][0]["follow_through"]["enabled"])
         self.assertEqual(wrist_lean_definition["controller"], "oscillator")
         self.assertEqual(wrist_lean_definition["default_preset_id"], "normal")
 
@@ -478,6 +479,34 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertLess(shoulder_peak_index, elbow_peak_index)
         self.assertLess(elbow_peak_index, wrist_peak_index)
         self.assertGreater(max(wrist_values) - min(wrist_values), max(shoulder_values) - min(shoulder_values))
+
+    def test_follow_through_increases_distal_motion(self) -> None:
+        base_samples = sample_motion(
+            MovementRunRequest(
+                movement_id="wave",
+                arm_id="test_follower",
+                preset_id="normal",
+                follow_through_enabled=False,
+            ),
+            sample_hz=80.0,
+        )
+        follow_samples = sample_motion(
+            MovementRunRequest(
+                movement_id="wave",
+                arm_id="test_follower",
+                preset_id="normal",
+                follow_through_enabled=True,
+                follow_through_gain=0.34,
+                follow_through_delay_seconds=0.14,
+                follow_through_damping=0.22,
+                follow_through_settle=0.22,
+            ),
+            sample_hz=80.0,
+        )
+
+        base_wrist_roll = [frame["wrist_roll"] for frame in base_samples]
+        follow_wrist_roll = [frame["wrist_roll"] for frame in follow_samples]
+        self.assertGreater(max(follow_wrist_roll) - min(follow_wrist_roll), max(base_wrist_roll) - min(base_wrist_roll))
 
 
 if __name__ == "__main__":
