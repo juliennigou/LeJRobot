@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Disc3, Music2, Sparkles } from "lucide-react";
+import { Music2 } from "lucide-react";
 
 import {
   fetchAnalysis,
@@ -37,6 +37,7 @@ import type {
   ScheduleConfig,
   TrackSummary,
 } from "@/lib/types";
+import { AudioStatsOverview } from "@/components/analysis/audio-stats-overview";
 import { RhythmPanel } from "@/components/analysis/rhythm-panel";
 import { SpectrogramPanel } from "@/components/analysis/spectrogram-panel";
 import { StructurePanel } from "@/components/analysis/structure-panel";
@@ -46,7 +47,7 @@ import { AppNavbar, type AppView } from "@/components/layout/app-navbar";
 import { MovementLibraryPage } from "@/components/movements/movement-library-page";
 import { PerformancePage } from "@/components/performance/performance-page";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { average, formatDuration } from "@/lib/analysis-view";
 
@@ -753,94 +754,94 @@ function App() {
         ) : null}
 
         {activeView === "analysis" ? (
-          <Card className="border-white/10 bg-white/[0.04]">
-            <CardHeader>
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge>Audio Stats</Badge>
-                <Badge variant="muted">{currentTrack ? `${currentTrack.title} - ${currentTrack.artist}` : "No track selected"}</Badge>
-              </div>
-              <CardTitle className="text-3xl text-white">Audio Statistics</CardTitle>
-              <CardDescription>
-                Full analysis view for rhythm, spectrum, structure, and backend-derived track metadata.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-6 grid gap-4 sm:grid-cols-3">
-                <StatCard label="BPM" value={analysis ? bpm.toFixed(2) : `${Math.round(bpm)}`} icon={Disc3} />
-                <StatCard label="Energy" value={energy.toFixed(2)} icon={Sparkles} />
-                <StatCard label="Position" value={`${positionSeconds.toFixed(1)}s`} icon={Clock3} />
-              </div>
+          <div className="space-y-6">
+            <AudioStatsOverview
+              track={currentTrack}
+              analysis={analysis}
+              schedule={currentSchedule}
+              analysisStatus={analysisStatus}
+              currentTime={positionSeconds}
+            />
 
-              <Tabs defaultValue="spectrogram">
-                <TabsList className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-                  <TabsTrigger value="spectrogram">Spectrogram</TabsTrigger>
-                  <TabsTrigger value="rhythm">Rhythm</TabsTrigger>
-                  <TabsTrigger value="structure">Structure</TabsTrigger>
-                  <TabsTrigger value="track-info">Track Info</TabsTrigger>
+            <Tabs defaultValue="spectrogram" className="gap-5">
+              <div className="overflow-x-auto pb-1">
+                <TabsList className="flex w-max min-w-full gap-2 rounded-[22px] border border-white/10 bg-white/[0.04] p-1.5">
+                  <TabsTrigger value="spectrogram" className="min-w-fit px-4">
+                    Spectrogram
+                  </TabsTrigger>
+                  <TabsTrigger value="rhythm" className="min-w-fit px-4">
+                    Rhythm
+                  </TabsTrigger>
+                  <TabsTrigger value="structure" className="min-w-fit px-4">
+                    Structure
+                  </TabsTrigger>
+                  <TabsTrigger value="track-info" className="min-w-fit px-4">
+                    Track Info
+                  </TabsTrigger>
                 </TabsList>
+              </div>
 
-                <TabsContent value="spectrogram" className="pt-6">
-                  <SpectrogramPanel analysis={analysis} currentTime={positionSeconds} />
-                </TabsContent>
+              <TabsContent value="spectrogram">
+                <SpectrogramPanel analysis={analysis} currentTime={positionSeconds} />
+              </TabsContent>
 
-                <TabsContent value="rhythm" className="pt-6">
-                  <RhythmPanel analysis={analysis} choreography={cueSummary} currentTime={positionSeconds} />
-                </TabsContent>
+              <TabsContent value="rhythm">
+                <RhythmPanel analysis={analysis} choreography={cueSummary} currentTime={positionSeconds} />
+              </TabsContent>
 
-                <TabsContent value="structure" className="pt-6">
-                  <StructurePanel
-                    analysis={analysis}
-                    choreography={cueSummary}
-                    schedule={currentSchedule}
-                    movementLibrary={movementLibrary}
-                    busyAction={scheduleBusyAction}
-                    onPhraseMappingChange={(phraseId, payload) => void handlePhraseMappingChange(phraseId, payload)}
-                  />
-                </TabsContent>
+              <TabsContent value="structure">
+                <StructurePanel
+                  analysis={analysis}
+                  choreography={cueSummary}
+                  schedule={currentSchedule}
+                  movementLibrary={movementLibrary}
+                  busyAction={scheduleBusyAction}
+                  onPhraseMappingChange={(phraseId, payload) => void handlePhraseMappingChange(phraseId, payload)}
+                />
+              </TabsContent>
 
-                <TabsContent value="track-info" className="pt-6">
-                  <TrackInfoPanel
-                    track={currentTrack}
-                    analysis={analysis}
-                    choreography={cueSummary}
-                    schedule={currentSchedule}
-                    autonomy={state?.autonomy ?? { status: "idle", note: "Autonomous scheduler idle." }}
-                    analysisStatus={analysisStatus}
-                    analysisLoading={analysisLoading}
-                    analysisError={analysisError}
-                    scheduleDraft={scheduleDraft}
-                    scheduleBusy={scheduleBusyAction === "apply-style"}
-                    onScheduleStyleChange={(styleId) =>
-                      setScheduleDraft((current) =>
-                        current
-                          ? { ...current, style_id: styleId }
-                          : { style_id: styleId, density_scale: currentSchedule?.config.density_scale ?? 1, intensity_scale: currentSchedule?.config.intensity_scale ?? 1 },
-                      )
-                    }
-                    onScheduleDensityChange={(value) =>
-                      setScheduleDraft((current) =>
-                        current
-                          ? { ...current, density_scale: value }
-                          : { style_id: currentSchedule?.config.style_id ?? "baseline", density_scale: value, intensity_scale: currentSchedule?.config.intensity_scale ?? 1 },
-                      )
-                    }
-                    onScheduleIntensityChange={(value) =>
-                      setScheduleDraft((current) =>
-                        current
-                          ? { ...current, intensity_scale: value }
-                          : { style_id: currentSchedule?.config.style_id ?? "baseline", density_scale: currentSchedule?.config.density_scale ?? 1, intensity_scale: value },
-                      )
-                    }
-                    onApplyScheduleStyle={() => void handleApplyScheduleStyle()}
-                    onResetScheduleStyle={handleResetScheduleStyle}
-                    autonomyBusy={autonomyBusy}
-                    onStartAutonomy={() => void handleStartAutonomy()}
-                    onStopAutonomy={() => void handleStopAutonomy()}
-                  />
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
+              <TabsContent value="track-info">
+                <TrackInfoPanel
+                  track={currentTrack}
+                  analysis={analysis}
+                  choreography={cueSummary}
+                  schedule={currentSchedule}
+                  autonomy={state?.autonomy ?? { status: "idle", note: "Autonomous scheduler idle." }}
+                  analysisStatus={analysisStatus}
+                  analysisLoading={analysisLoading}
+                  analysisError={analysisError}
+                  scheduleDraft={scheduleDraft}
+                  scheduleBusy={scheduleBusyAction === "apply-style"}
+                  onScheduleStyleChange={(styleId) =>
+                    setScheduleDraft((current) =>
+                      current
+                        ? { ...current, style_id: styleId }
+                        : { style_id: styleId, density_scale: currentSchedule?.config.density_scale ?? 1, intensity_scale: currentSchedule?.config.intensity_scale ?? 1 },
+                    )
+                  }
+                  onScheduleDensityChange={(value) =>
+                    setScheduleDraft((current) =>
+                      current
+                        ? { ...current, density_scale: value }
+                        : { style_id: currentSchedule?.config.style_id ?? "baseline", density_scale: value, intensity_scale: currentSchedule?.config.intensity_scale ?? 1 },
+                    )
+                  }
+                  onScheduleIntensityChange={(value) =>
+                    setScheduleDraft((current) =>
+                      current
+                        ? { ...current, intensity_scale: value }
+                        : { style_id: currentSchedule?.config.style_id ?? "baseline", density_scale: currentSchedule?.config.density_scale ?? 1, intensity_scale: value },
+                    )
+                  }
+                  onApplyScheduleStyle={() => void handleApplyScheduleStyle()}
+                  onResetScheduleStyle={handleResetScheduleStyle}
+                  autonomyBusy={autonomyBusy}
+                  onStartAutonomy={() => void handleStartAutonomy()}
+                  onStopAutonomy={() => void handleStopAutonomy()}
+                />
+              </TabsContent>
+            </Tabs>
+          </div>
         ) : null}
 
         {activeView === "movements" ? (
@@ -948,26 +949,6 @@ function App() {
         ) : null}
       </div>
     </main>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: typeof Disc3;
-}) {
-  return (
-    <div className="rounded-[24px] border border-white/10 bg-black/25 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="hud-label">{label}</p>
-        <Icon className="h-4 w-4 text-primary" />
-      </div>
-      <p className="mt-4 text-2xl font-semibold text-white">{value}</p>
-    </div>
   );
 }
 
