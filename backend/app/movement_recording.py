@@ -19,6 +19,8 @@ RECORDINGS_DIR = MOVEMENT_DATA_DIR / "recordings"
 FITS_DIR = MOVEMENT_DATA_DIR / "fits"
 JOINT_NAMES = [joint_name for _, joint_name in DEFAULT_JOINT_LAYOUT]
 FIT_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
+SAFE_ELBOW_FLEX_BASE_DEGREES = -10.0
+ELBOW_NEGATIVE_THRESHOLD_DEGREES = -2.0
 
 
 @dataclass
@@ -317,6 +319,8 @@ def fit_wave_from_recordings(recordings: Iterable[MovementRecording], label: str
         base_angle = float(np.mean(base_angles))
         amplitude = float(np.mean(amplitudes))
         phase = _circular_mean(phases)
+        if joint_name == "elbow_flex" and base_angle > ELBOW_NEGATIVE_THRESHOLD_DEGREES:
+            base_angle = SAFE_ELBOW_FLEX_BASE_DEGREES
         fitted_by_joint[joint_name] = (base_angle, amplitude, phase)
         neutral_pose[joint_name] = round(base_angle, 2)
         if joint_name == "shoulder_pan":

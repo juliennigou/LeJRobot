@@ -36,6 +36,7 @@ class MovementRecordingTest(unittest.TestCase):
         self.assertLess(profiles["shoulder_pan"].phase_delay_radians, profiles["elbow_flex"].phase_delay_radians)
         self.assertLess(profiles["elbow_flex"].phase_delay_radians, profiles["wrist_roll"].phase_delay_radians)
         self.assertGreater(profiles["wrist_roll"].amplitude, profiles["shoulder_pan"].amplitude)
+        self.assertLess(profiles["elbow_flex"].base_angle, 0.0)
 
     def _synthetic_recording(self) -> MovementRecording:
         frames = sample_motion(
