@@ -82,6 +82,20 @@ These contracts started ahead of the implementation. The real backend analysis p
 ### `GET /api/arms`
 - Response: `DualArmState`
 
+### `POST /api/arms/verify`
+- Triggers live verification for both configured arms
+- Response: `DualArmState`
+- Each arm now includes:
+  - `verification.status`
+  - `verification.driver`
+  - `verification.port_present`
+  - `verification.calibration_found`
+  - `verification.calibration_path`
+  - `verification.expected_joint_count`
+  - `verification.detected_joint_count`
+  - `verification.last_checked_at`
+  - `verification.message`
+
 ### `POST /api/arms/execution-mode`
 - Body:
 ```json
@@ -99,6 +113,7 @@ These contracts started ahead of the implementation. The real backend analysis p
 }
 ```
 - Response: `DualArmState`
+- Connecting an arm now refreshes its verification state before marking it connected
 
 ### `POST /api/arms/{arm_id}/safety`
 - Body:
@@ -138,6 +153,18 @@ These contracts started ahead of the implementation. The real backend analysis p
 - `audio_url`
 - `external_url`
 - `analysis_status`
+
+### `ArmVerificationState`
+- `status`
+- `driver`
+- `dependency_available`
+- `port_present`
+- `calibration_found`
+- `calibration_path`
+- `expected_joint_count`
+- `detected_joint_count`
+- `last_checked_at`
+- `message`
 - `motion_profile`
 
 ### `AudioAnalysis`

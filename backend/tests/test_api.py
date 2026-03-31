@@ -12,9 +12,26 @@ from fastapi.testclient import TestClient
 
 from backend.app import main as main_module
 from backend.app.analysis import AudioAnalysisCache, AudioAnalysisService
+from backend.app.arms import DEFAULT_EXPECTED_JOINT_COUNT, ArmRuntime
 from backend.app.music import JamendoTrackProvider, LocalTrackLibrary
-from backend.app.models import RobotConfig
+from backend.app.models import ArmVerificationState, ArmVerificationStatus, RobotConfig
 from backend.app.state import RobotStateStore
+
+
+class FakeReadyVerifier:
+    def verify(self, arm: ArmRuntime) -> ArmVerificationState:
+        return ArmVerificationState(
+            status=ArmVerificationStatus.READY,
+            driver="test-double",
+            dependency_available=True,
+            port_present=True,
+            calibration_found=True,
+            calibration_path=f"/tmp/{arm.arm_id}.json",
+            expected_joint_count=DEFAULT_EXPECTED_JOINT_COUNT,
+            detected_joint_count=DEFAULT_EXPECTED_JOINT_COUNT,
+            last_checked_at="2026-03-31T00:00:00+00:00",
+            message=f"{arm.arm_id} verified for tests",
+        )
 
 
 class ApiSmokeTest(unittest.TestCase):
@@ -35,7 +52,8 @@ class ApiSmokeTest(unittest.TestCase):
                 leader_id="test_leader",
                 leader_port="/dev/mock-leader",
                 safety_step_ticks=120,
-            )
+            ),
+            verifier=FakeReadyVerifier(),
         )
         main_module.local_library = LocalTrackLibrary(
             uploads_dir=uploads_root,
@@ -118,6 +136,15 @@ class ApiSmokeTest(unittest.TestCase):
             {arm["arm_type"] for arm in arms_payload["arms"]},
             {"leader", "follower"},
         )
+        self.assertTrue(all(arm["verification"]["status"] == "ready" for arm in arms_payload["arms"]))
+        self.assertTrue(all(arm["verification"]["detected_joint_count"] == 6 for arm in arms_payload["arms"]))
+
+        verify = self.client.post("/api/arms/verify")
+        self.assertEqual(verify.status_code, 200)
+        verify_payload = verify.json()
+        self.assertTrue(all(arm["connected"] for arm in verify_payload["arms"]))
+        self.assertTrue(all(arm["calibrated"] for arm in verify_payload["arms"]))
+        self.assertTrue(all(arm["verification"]["driver"] == "test-double" for arm in verify_payload["arms"]))
 
         mode_update = self.client.post("/api/arms/execution-mode", json={"mode": "call_response"})
         self.assertEqual(mode_update.status_code, 200)

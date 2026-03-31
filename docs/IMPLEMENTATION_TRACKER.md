@@ -9,7 +9,7 @@ The delivery sequence is:
 - Phase 3: optional leader-arm capture, phrase authoring, and smarter choreography tools
 
 ## Active Epic
-- `#18` Phase 1: music analysis console for dual-arm SO-101 dance system
+- `#28` Phase 2: real dual-arm SO-101 execution for leader + follower
 
 ## Ticket Stack
 - `#10` Define audio analysis models and API contracts for dual-arm choreography [done]
@@ -22,9 +22,15 @@ The delivery sequence is:
 - `#17` Prepare dual-arm LeRobot adapter and safety envelope [done]
 - `#19` Add GitHub Actions CI for backend, frontend, and smoke validation
 - `#20` Dockerize frontend and backend with docker compose startup
+- `#29` Verify live SO-101 connection and calibration loading for both arms
+- `#31` Implement real dual-arm SO-101 hardware bridge and telemetry
+- `#30` Enforce live safety supervisor for torque, neutral, emergency stop, and step limits
+- `#32` Add manual hardware validation controls and status surfaces
+- `#34` Execute choreography on one live SO-101 arm
+- `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#15`
+- Current PR target: `#29`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -33,12 +39,14 @@ The delivery sequence is:
   - Dual-arm choreography output is section-aware and exposes left/right arm cue channels
   - `/api/state` now derives transport BPM, energy, spectrum bars, and autonomous servo modulation from cached analysis when it exists
   - Dual-arm adapter profiles now exist for leader + follower with dry-run defaults, safety envelopes, execution modes, and emergency-stop/neutral planning endpoints
+  - `#29` is wiring live readiness checks for dependency availability, serial-port reachability, and calibration coverage per arm
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
   - Minimal local upload/select flow exists without redesigning the page
   - Waveform is now the primary playback surface through `wavesurfer.js`
   - Spectrogram, rhythm, structure, and track-info tabs are wired to the real backend analysis payload
+  - Live hardware execution is not implemented yet; the current dual-arm adapter remains dry-run only
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.
@@ -47,21 +55,19 @@ The delivery sequence is:
 
 ## Working Decisions
 - Use Python backend as the source of truth for BPM, beats, sections, and choreography timeline.
-- Keep leader and follower as separate hardware profiles even if they share motor family overlap.
+- For Phase 2 planning, treat leader and follower as the same calibrated 6-joint SO-101 control profile while still preserving separate ports, safety state, and runtime status.
 - Keep current search/select compatibility while expanding schema.
 - Do not fake real analysis results in contract tickets. Contract endpoints may exist before the implementation behind them.
 - Persist local upload metadata under `.data/uploads/index.json` and keep uploaded media files under `.data/uploads/files/`.
 - Persist computed audio analysis under `.data/analysis-cache/json/` and remote source audio under `.data/analysis-cache/audio/`.
 
 ## PR Order
-1. `#10` Data models and API contracts
-2. `#11` Local upload pipeline
-3. `#12` Audio analysis pipeline
-4. `#13` Choreography timeline generation
-5. `#14` Waveform-first frontend
-6. `#15` Analysis tabs
-7. `#16` Remove synthetic state as source of truth
-8. `#17` Dual-arm hardware adapter prep
+1. `#29` Live connection and calibration verification
+2. `#31` Real hardware bridge and telemetry
+3. `#30` Live safety supervisor
+4. `#32` Manual hardware validation controls
+5. `#34` Single-arm live choreography execution
+6. `#33` Dual-arm synchronized live choreography playback
 
 ## Update Rule
 After each merged PR:

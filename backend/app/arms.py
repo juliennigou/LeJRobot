@@ -1,6 +1,20 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+import os
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+
+try:
+    import serial
+    from serial import SerialException
+except ImportError:  # pragma: no cover - handled in verification status
+    serial = None
+
+    class SerialException(Exception):
+        pass
 
 from .models import (
     ArmAdapterState,
@@ -11,6 +25,8 @@ from .models import (
     ArmSafetyEnvelope,
     ArmSafetyUpdate,
     ArmType,
+    ArmVerificationState,
+    ArmVerificationStatus,
     ChoreographyTimeline,
     DualArmExecutionState,
     DualArmState,
@@ -29,6 +45,9 @@ DEFAULT_JOINT_LAYOUT = [
     (6, "gripper"),
 ]
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_EXPECTED_JOINT_COUNT = len(DEFAULT_JOINT_LAYOUT)
+
 
 @dataclass
 class ArmRuntime:
@@ -40,15 +59,191 @@ class ArmRuntime:
     calibrated: bool
     notes: str
     safety: ArmSafetyEnvelope
+    verification: ArmVerificationState
     joints: list[ArmJointConfig] = field(default_factory=list)
 
 
+class LeRobotArmVerifier:
+    def verify(self, arm: ArmRuntime) -> ArmVerificationState:
+        dependency_available = importlib.util.find_spec("lerobot") is not None
+        port_present = bool(arm.port and Path(arm.port).exists())
+        calibration_path, detected_joint_count = self._find_calibration(arm.arm_id)
+        calibration_found = calibration_path is not None
+
+        base = ArmVerificationState(
+            driver="lerobot",
+            dependency_available=dependency_available,
+            port_present=port_present,
+            calibration_found=calibration_found,
+            calibration_path=str(calibration_path) if calibration_path else None,
+            expected_joint_count=DEFAULT_EXPECTED_JOINT_COUNT,
+            detected_joint_count=detected_joint_count,
+            last_checked_at=datetime.now(UTC).isoformat(),
+        )
+
+        if not dependency_available:
+            return base.model_copy(
+                update={
+                    "status": ArmVerificationStatus.MISSING_DEPENDENCY,
+                    "message": "The 'lerobot' package is not installed in the backend environment.",
+                }
+            )
+
+        if serial is None:
+            return base.model_copy(
+                update={
+                    "status": ArmVerificationStatus.MISSING_DEPENDENCY,
+                    "message": "The 'pyserial' package is not installed in the backend environment.",
+                }
+            )
+
+        if not arm.port:
+            return base.model_copy(
+                update={
+                    "status": ArmVerificationStatus.MISSING_PORT,
+                    "message": f"Arm '{arm.arm_id}' has no configured serial port.",
+                }
+            )
+
+        if not port_present:
+            return base.model_copy(
+                update={
+                    "status": ArmVerificationStatus.UNREACHABLE,
+                    "message": f"Configured serial port '{arm.port}' does not exist.",
+                }
+            )
+
+        try:
+            with serial.Serial(arm.port, timeout=0.25):
+                pass
+        except (OSError, SerialException) as exc:
+            return base.model_copy(
+                update={
+                    "status": ArmVerificationStatus.UNREACHABLE,
+                    "message": f"Unable to open serial port '{arm.port}': {exc}",
+                }
+            )
+
+        if not calibration_found:
+            return base.model_copy(
+                update={
+                    "status": ArmVerificationStatus.MISSING_CALIBRATION,
+                    "message": f"No calibration file was found for arm '{arm.arm_id}'.",
+                }
+            )
+
+        if detected_joint_count < DEFAULT_EXPECTED_JOINT_COUNT:
+            return base.model_copy(
+                update={
+                    "status": ArmVerificationStatus.ERROR,
+                    "message": (
+                        f"Calibration for arm '{arm.arm_id}' only covers "
+                        f"{detected_joint_count}/{DEFAULT_EXPECTED_JOINT_COUNT} joints."
+                    ),
+                }
+            )
+
+        return base.model_copy(
+            update={
+                "status": ArmVerificationStatus.READY,
+                "message": (
+                    f"Serial port '{arm.port}' opened successfully and calibration covers "
+                    f"{detected_joint_count} joints."
+                ),
+            }
+        )
+
+    def _find_calibration(self, arm_id: str) -> tuple[Path | None, int]:
+        candidates = self._calibration_roots()
+        seen: set[Path] = set()
+        for root in candidates:
+            if root in seen or not root.exists():
+                continue
+            seen.add(root)
+            direct = self._calibration_candidate_paths(root, arm_id)
+            for candidate in direct:
+                if candidate.exists():
+                    return candidate, self._count_calibrated_joints(candidate)
+
+            for candidate in root.rglob(f"{arm_id}.json"):
+                if candidate.is_file():
+                    return candidate, self._count_calibrated_joints(candidate)
+
+        return None, 0
+
+    def _calibration_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        env_calibration = os.getenv("LEROBOT_CALIBRATION_DIR")
+        if env_calibration:
+            roots.append(Path(env_calibration).expanduser())
+
+        lerobot_home = os.getenv("LEROBOT_HOME")
+        if lerobot_home:
+            roots.append(Path(lerobot_home).expanduser() / "calibration")
+
+        hf_home = os.getenv("HF_HOME")
+        if hf_home:
+            roots.append(Path(hf_home).expanduser() / "lerobot" / "calibration")
+
+        roots.append(Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration")
+        roots.append(ROOT_DIR / ".data" / "calibration")
+        return roots
+
+    def _calibration_candidate_paths(self, root: Path, arm_id: str) -> list[Path]:
+        return [
+            root / f"{arm_id}.json",
+            root / "robots" / f"{arm_id}.json",
+            root / "teleoperators" / f"{arm_id}.json",
+            root / "so101_follower" / f"{arm_id}.json",
+            root / "so101_leader" / f"{arm_id}.json",
+        ]
+
+    def _count_calibrated_joints(self, path: Path) -> int:
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return 0
+
+        counts: list[int] = []
+        self._collect_joint_counts(payload, counts)
+        return max(counts, default=0)
+
+    def _collect_joint_counts(self, payload: object, counts: list[int]) -> None:
+        if isinstance(payload, dict):
+            joint_key_count = len(set(payload.keys()) & {name for _, name in DEFAULT_JOINT_LAYOUT})
+            if joint_key_count:
+                counts.append(joint_key_count)
+
+            for key in ("motors", "joints", "servos", "motors_calibration"):
+                value = payload.get(key)
+                if isinstance(value, dict):
+                    counts.append(len(value))
+                elif isinstance(value, list):
+                    counts.append(len(value))
+
+            for value in payload.values():
+                self._collect_joint_counts(value, counts)
+            return
+
+        if isinstance(payload, list):
+            if payload and all(isinstance(item, dict) for item in payload):
+                names = {str(item.get("name") or item.get("joint_name") or "") for item in payload}
+                matched_names = len(names & {name for _, name in DEFAULT_JOINT_LAYOUT})
+                if matched_names:
+                    counts.append(matched_names)
+                elif all(("id" in item or "servo_id" in item) for item in payload):
+                    counts.append(len(payload))
+            for item in payload:
+                self._collect_joint_counts(item, counts)
+
+
 class DualArmAdapter:
-    def __init__(self, config: RobotConfig) -> None:
+    def __init__(self, config: RobotConfig, verifier: LeRobotArmVerifier | None = None) -> None:
         self.execution_mode = ExecutionMode.MIRROR
         self.neutral_pose_scene = SceneName.IDLE
         self.required_dry_run = True
         self.arms: dict[str, ArmRuntime] = {}
+        self.verifier = verifier or LeRobotArmVerifier()
 
         self._register_arm(
             arm_id=config.leader_id or "leader_arm",
@@ -70,17 +265,19 @@ class DualArmAdapter:
             arm_type=arm_type,
             channel=channel,
             port=port,
-            connected=available,
-            calibrated=available,
+            connected=False,
+            calibrated=False,
             notes=self._default_note(arm_type),
             safety=self._default_safety(arm_type),
+            verification=ArmVerificationState(expected_joint_count=DEFAULT_EXPECTED_JOINT_COUNT),
             joints=self._default_joints(arm_type),
         )
+        self.verify_arm(arm_id)
 
     def _default_note(self, arm_type: ArmType) -> str:
         if arm_type == ArmType.LEADER:
-            return "Leader profile starts in conservative dry-run mode and should be recalibrated before motor writes."
-        return "Follower profile is staged for choreography playback but remains dry-run only."
+            return "Leader profile starts in conservative dry-run mode and requires live verification before motor writes."
+        return "Follower profile is staged for choreography playback and requires live verification before motor writes."
 
     def _default_safety(self, arm_type: ArmType) -> ArmSafetyEnvelope:
         if arm_type == ArmType.LEADER:
@@ -119,8 +316,11 @@ class DualArmAdapter:
         arm = self._arm(arm_id)
         if connected and not arm.port:
             raise ValueError(f"Arm '{arm_id}' has no configured port")
-        arm.connected = connected
-        if not connected:
+        if connected:
+            verification = self.verify_arm(arm_id)
+            arm.connected = verification.status == ArmVerificationStatus.READY
+        else:
+            arm.connected = False
             arm.safety.torque_enabled = False
 
     def update_safety(self, arm_id: str, payload: ArmSafetyUpdate) -> None:
@@ -153,6 +353,22 @@ class DualArmAdapter:
     def neutralize(self) -> None:
         self.neutral_pose_scene = SceneName.IDLE
 
+    def verify_all(self) -> None:
+        for arm_id in self.arms:
+            self.verify_arm(arm_id)
+
+    def verify_arm(self, arm_id: str) -> ArmVerificationState:
+        arm = self._arm(arm_id)
+        verification = self.verifier.verify(arm)
+        arm.verification = verification
+        arm.calibrated = verification.calibration_found and (
+            verification.detected_joint_count >= verification.expected_joint_count
+        )
+        arm.connected = verification.status == ArmVerificationStatus.READY
+        if verification.message:
+            arm.notes = verification.message
+        return verification
+
     def snapshot(self, choreography: ChoreographyTimeline | None, position_seconds: float) -> DualArmState:
         choreography_ready = choreography is not None
         arms: list[ArmAdapterState] = []
@@ -169,6 +385,7 @@ class DualArmAdapter:
                     calibrated=arm.calibrated,
                     safety=arm.safety.model_copy(deep=True),
                     joints=[joint.model_copy(deep=True) for joint in arm.joints],
+                    verification=arm.verification.model_copy(deep=True),
                     preview=self._preview(channel_cues, arm.channel, position_seconds),
                     notes=arm.notes,
                 )
