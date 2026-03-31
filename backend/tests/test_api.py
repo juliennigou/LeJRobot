@@ -287,6 +287,12 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(reset.status_code, 200)
         self.assertFalse(reset.json()["execution"]["emergency_stop_active"])
 
+        leader_reenable_after_reset = self.client.post(
+            "/api/arms/test_leader/safety",
+            json={"torque_enabled": True, "dry_run": False},
+        )
+        self.assertEqual(leader_reenable_after_reset.status_code, 200)
+
         follower_reenable = self.client.post(
             "/api/arms/test_follower/safety",
             json={"torque_enabled": True, "dry_run": False},
@@ -364,6 +370,9 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertIsNotNone(completed)
         self.assertEqual(completed["movement_id"], "wave")
         self.assertEqual(completed["arm_id"], "test_follower")
+        self.assertEqual(completed["target_scope"], "single")
+        self.assertEqual(completed["execution_mode"], "unison")
+        self.assertEqual(completed["arm_ids"], ["test_follower"])
         self.assertEqual(completed["preset_id"], "normal")
         self.assertGreaterEqual(completed["progress"], 1.0)
 
@@ -375,6 +384,42 @@ class ApiSmokeTest(unittest.TestCase):
         stop_wave = self.client.post("/api/movements/stop")
         self.assertEqual(stop_wave.status_code, 200)
         self.assertIn(stop_wave.json()["active"]["status"], {"stopped", "completed"})
+
+        dual_run = self.client.post(
+            "/api/movements/run",
+            json={
+                "movement_id": "wrist_lean",
+                "target_scope": "both",
+                "execution_mode": "mirror",
+                "preset_id": "normal",
+                "frequency_hz": 4.0,
+                "cycles": 1,
+            },
+        )
+        self.assertEqual(dual_run.status_code, 200)
+        self.assertEqual(dual_run.json()["active"]["status"], "running")
+        self.assertEqual(dual_run.json()["active"]["target_scope"], "both")
+        self.assertEqual(dual_run.json()["active"]["execution_mode"], "mirror")
+        self.assertEqual(set(dual_run.json()["active"]["arm_ids"]), {"test_leader", "test_follower"})
+
+        dual_completed = None
+        for _ in range(120):
+            snapshot = self.client.get("/api/movements")
+            self.assertEqual(snapshot.status_code, 200)
+            active = snapshot.json()["active"]
+            if active["status"] == "completed" and active["movement_id"] == "wrist_lean":
+                dual_completed = active
+                break
+            time.sleep(0.05)
+
+        self.assertIsNotNone(dual_completed)
+        self.assertEqual(dual_completed["target_scope"], "both")
+        self.assertEqual(dual_completed["execution_mode"], "mirror")
+        self.assertEqual(set(dual_completed["arm_ids"]), {"test_leader", "test_follower"})
+
+        bridge = main_module.store.arm_adapter.bridge
+        self.assertLess(bridge.goals["test_leader"]["shoulder_pan"], 0.0)
+        self.assertGreater(bridge.goals["test_follower"]["shoulder_pan"], 0.0)
 
         cache_files = list((Path(self.tempdir.name) / "analysis-cache" / "json" / "local").glob("*.json"))
         self.assertTrue(cache_files)

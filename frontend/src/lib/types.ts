@@ -10,6 +10,7 @@ export type ArmType = "follower" | "leader";
 export type ArmChannel = "left" | "right";
 export type ExecutionMode = "mirror" | "unison" | "call_response" | "asymmetric";
 export type MovementStatus = "idle" | "running" | "completed" | "stopped" | "error";
+export type MovementTargetScope = "single" | "both";
 export type ArmVerificationStatus =
   | "idle"
   | "ready"
@@ -276,7 +277,10 @@ export interface MovementRunState {
   status: MovementStatus;
   movement_id?: string | null;
   preset_id?: string | null;
+  target_scope: MovementTargetScope;
+  execution_mode: ExecutionMode;
   arm_id?: string | null;
+  arm_ids: string[];
   arm_type?: ArmType | null;
   started_at?: string | null;
   updated_at?: string | null;

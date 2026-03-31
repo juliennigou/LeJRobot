@@ -1,6 +1,12 @@
 import { Activity, Hand, Loader2, Play, Square, Waves } from "lucide-react";
 
-import type { ArmAdapterState, MovementDefinition, MovementLibraryState } from "@/lib/types";
+import type {
+  ArmAdapterState,
+  ExecutionMode,
+  MovementDefinition,
+  MovementLibraryState,
+  MovementTargetScope,
+} from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,9 +37,13 @@ export function MovementLibraryPage({
   library,
   arms,
   selectedArmId,
+  targetScope,
+  executionMode,
   movementTunings,
   busyAction,
   onSelectArm,
+  onSelectTargetScope,
+  onSelectExecutionMode,
   onSelectPreset,
   onFrequencyChange,
   onCyclesChange,
@@ -46,6 +56,8 @@ export function MovementLibraryPage({
   library: MovementLibraryState | null;
   arms: ArmAdapterState[];
   selectedArmId: string | null;
+  targetScope: MovementTargetScope;
+  executionMode: ExecutionMode;
   movementTunings: Record<
     string,
     {
@@ -59,6 +71,8 @@ export function MovementLibraryPage({
   >;
   busyAction: string | null;
   onSelectArm: (armId: string) => void;
+  onSelectTargetScope: (scope: MovementTargetScope) => void;
+  onSelectExecutionMode: (mode: ExecutionMode) => void;
   onSelectPreset: (movementId: string, presetId: string) => void;
   onFrequencyChange: (movementId: string, value: number) => void;
   onCyclesChange: (movementId: string, value: number) => void;
@@ -70,6 +84,9 @@ export function MovementLibraryPage({
 }) {
   const active = library?.active ?? {
     status: "idle" as const,
+    target_scope: "single" as const,
+    execution_mode: "unison" as const,
+    arm_ids: [],
     progress: 0,
   };
   const selectedArm = arms.find((arm) => arm.arm_id === selectedArmId) ?? null;
@@ -83,10 +100,10 @@ export function MovementLibraryPage({
             <Badge variant="accent">First Live Motion Path</Badge>
             <Badge variant="muted">{active.status === "running" ? "Movement Running" : "Ready"}</Badge>
           </div>
-          <CardTitle className="text-3xl text-white">Single-Arm Movement Studio</CardTitle>
+          <CardTitle className="text-3xl text-white">Movement Studio</CardTitle>
           <CardDescription className="max-w-3xl text-slate-300">
-            Start with reusable motion primitives before binding everything to music. The library now includes the
-            fitted `wave` plus a simpler `wrist_lean` built around upward wrist flex, shoulder pan, and a hand twist.
+            Start with reusable motion primitives before binding everything to music. You can now target one arm or
+            both arms together, and switch between `unison` and `mirror` playback for the same movement.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -94,13 +111,78 @@ export function MovementLibraryPage({
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Card className="border-white/10 bg-white/[0.04]">
           <CardHeader>
-            <CardTitle className="text-white">Arm Selection</CardTitle>
+            <CardTitle className="text-white">Execution Target</CardTitle>
             <CardDescription className="text-slate-300">
-              Choose the arm that should execute the movement. Live execution requires connection, torque enabled,
-              and dry run disabled.
+              Choose a single arm or run both arms together. Dual-arm playback reuses the same tuned movement with
+              `unison` or `mirror` coordination.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
+          <CardContent className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                className={`rounded-[24px] border p-4 text-left transition ${
+                  targetScope === "single"
+                    ? "border-primary/40 bg-primary/10 shadow-[0_16px_40px_rgba(12,74,162,0.18)]"
+                    : "border-white/10 bg-black/20 hover:border-white/20"
+                }`}
+                onClick={() => onSelectTargetScope("single")}
+                type="button"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>Single Arm</Badge>
+                  <Badge variant="muted">Manual selection</Badge>
+                </div>
+                <p className="mt-4 text-sm text-slate-300">Run a movement on one arm at a time for tuning and checks.</p>
+              </button>
+              <button
+                className={`rounded-[24px] border p-4 text-left transition ${
+                  targetScope === "both"
+                    ? "border-primary/40 bg-primary/10 shadow-[0_16px_40px_rgba(12,74,162,0.18)]"
+                    : "border-white/10 bg-black/20 hover:border-white/20"
+                }`}
+                onClick={() => onSelectTargetScope("both")}
+                type="button"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>Both Arms</Badge>
+                  <Badge variant="muted">{executionMode === "mirror" ? "Mirror" : "Unison"}</Badge>
+                </div>
+                <p className="mt-4 text-sm text-slate-300">
+                  Drive leader and follower together using the same movement runtime.
+                </p>
+              </button>
+            </div>
+
+            {targetScope === "both" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  className={`rounded-[20px] border px-4 py-3 text-left transition ${
+                    executionMode === "mirror"
+                      ? "border-primary/40 bg-primary/10 text-white"
+                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20"
+                  }`}
+                  onClick={() => onSelectExecutionMode("mirror")}
+                  type="button"
+                >
+                  <p className="text-sm font-semibold">Mirror</p>
+                  <p className="mt-1 text-xs text-slate-400">Oppose shoulder pan and wrist roll so the arms read symmetrically.</p>
+                </button>
+                <button
+                  className={`rounded-[20px] border px-4 py-3 text-left transition ${
+                    executionMode === "unison"
+                      ? "border-primary/40 bg-primary/10 text-white"
+                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20"
+                  }`}
+                  onClick={() => onSelectExecutionMode("unison")}
+                  type="button"
+                >
+                  <p className="text-sm font-semibold">Unison</p>
+                  <p className="mt-1 text-xs text-slate-400">Send the same joint trajectory to both arms together.</p>
+                </button>
+              </div>
+            ) : null}
+
+            <div className="grid gap-3 md:grid-cols-2">
             {arms.map((arm) => {
               const selected = arm.arm_id === selectedArmId;
               const ready = armReady(arm);
@@ -127,6 +209,7 @@ export function MovementLibraryPage({
                 </button>
               );
             })}
+            </div>
           </CardContent>
         </Card>
 
@@ -159,7 +242,10 @@ export function MovementLibraryPage({
           </CardHeader>
           <CardContent className="grid gap-4">
             {(library?.movements ?? []).map((movement) => {
-              const canRun = !!selectedArm && armReady(selectedArm) && active.status !== "running";
+              const readyArms = arms.filter((arm) => armReady(arm));
+              const canRun =
+                active.status !== "running" &&
+                (targetScope === "single" ? (!!selectedArm && armReady(selectedArm)) : readyArms.length >= 2);
               const isRunning = active.status === "running" && active.movement_id === movement.movement_id;
               const tuning = movementTunings[movement.movement_id] ?? defaultMovementTuning(movement);
               const selectedPreset =
@@ -196,7 +282,7 @@ export function MovementLibraryPage({
                         ) : (
                           <Play className="mr-2 h-4 w-4" />
                         )}
-                        {isRunning ? "Running..." : "Run Movement"}
+                        {isRunning ? "Running..." : targetScope === "both" ? "Run Both Arms" : "Run Movement"}
                       </Button>
                       <Button
                         variant="ghost"
@@ -339,7 +425,13 @@ export function MovementLibraryPage({
                 <Badge>{active.movement_id ?? "No movement"}</Badge>
                 <Badge variant={active.status === "running" ? "accent" : "muted"}>{active.status}</Badge>
                 {active.preset_id ? <Badge variant="muted">{active.preset_id}</Badge> : null}
-                {active.arm_id ? <Badge variant="muted">{active.arm_id}</Badge> : null}
+                <Badge variant="muted">{active.target_scope}</Badge>
+                <Badge variant="muted">{active.execution_mode}</Badge>
+                {(active.arm_ids ?? []).map((armId) => (
+                  <Badge key={armId} variant="muted">
+                    {armId}
+                  </Badge>
+                ))}
               </div>
               <p className="mt-4 text-sm text-slate-300">{active.note ?? "Pick an arm and run a movement."}</p>
               <div className="mt-5">

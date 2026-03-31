@@ -39,6 +39,7 @@ from .models import (
     MovementRunRequest,
     MovementRunState,
     MovementStatus,
+    MovementTargetScope,
     MotionCue,
     RobotConfig,
     SceneName,
@@ -511,7 +512,7 @@ class DualArmAdapter:
                 raise ValueError(arm.notes) from exc
             return
 
-        if self._movement_state.status == MovementStatus.RUNNING and self._movement_state.arm_id == arm_id:
+        if self._movement_state.status == MovementStatus.RUNNING and arm_id in self._movement_state.arm_ids:
             self.stop_movement()
         with self._command_lock:
             self.bridge.disconnect(arm)
@@ -593,7 +594,6 @@ class DualArmAdapter:
         )
 
     def start_movement(self, payload: MovementRunRequest) -> None:
-        arm = self._arm(payload.arm_id)
         definition = self._movement_definitions.get(payload.movement_id)
         spec = get_movement(payload.movement_id)
         if definition is None or spec is None:
@@ -601,25 +601,42 @@ class DualArmAdapter:
         if self._movement_state.status == MovementStatus.RUNNING:
             raise ValueError("A movement is already running")
 
-        self._assert_arm_ready_for_motion(arm)
+        target_arms = self._resolve_movement_arms(payload)
+        for arm in target_arms:
+            self._assert_arm_ready_for_motion(arm)
+
+        execution_mode = self._resolve_movement_execution_mode(payload)
         self._movement_stop.clear()
         now = datetime.now(UTC).isoformat()
+        selected_arm = target_arms[0] if payload.target_scope == MovementTargetScope.SINGLE else None
+        active_preset = payload.preset_id or definition.default_preset_id
+        target_label = (
+            selected_arm.arm_id
+            if selected_arm is not None
+            else ", ".join(arm.arm_id for arm in target_arms)
+        )
         self._movement_state = MovementRunState(
             status=MovementStatus.RUNNING,
             movement_id=payload.movement_id,
-            preset_id=payload.preset_id or definition.default_preset_id,
-            arm_id=arm.arm_id,
-            arm_type=arm.arm_type,
+            preset_id=active_preset,
+            target_scope=payload.target_scope,
+            execution_mode=execution_mode,
+            arm_id=selected_arm.arm_id if selected_arm is not None else None,
+            arm_ids=[arm.arm_id for arm in target_arms],
+            arm_type=selected_arm.arm_type if selected_arm is not None else None,
             started_at=now,
             updated_at=now,
-            note=f"Running {definition.name} ({payload.preset_id or definition.default_preset_id or 'default'}) on {arm.arm_id}.",
+            note=(
+                f"Running {definition.name} ({active_preset or 'default'}) "
+                f"in {execution_mode.value} mode on {target_label}."
+            ),
             progress=0.0,
         )
         self._movement_thread = Thread(
             target=self._run_movement_thread,
-            args=(payload, definition),
+            args=(payload, definition, target_arms, execution_mode),
             daemon=True,
-            name=f"movement-{payload.movement_id}-{arm.arm_id}",
+            name=f"movement-{payload.movement_id}-{payload.target_scope.value}",
         )
         self._movement_thread.start()
 
@@ -648,7 +665,7 @@ class DualArmAdapter:
         arm = self._arm(arm_id)
         was_connected = self.bridge.is_connected(arm)
 
-        if self._movement_state.status == MovementStatus.RUNNING and self._movement_state.arm_id == arm_id:
+        if self._movement_state.status == MovementStatus.RUNNING and arm_id in self._movement_state.arm_ids:
             self.stop_movement()
 
         if was_connected:
@@ -940,9 +957,10 @@ class DualArmAdapter:
         self,
         payload: MovementRunRequest,
         definition: MovementDefinition,
+        target_arms: list[ArmRuntime],
+        execution_mode: ExecutionMode,
     ) -> None:
         try:
-            arm = self._arm(payload.arm_id)
             generator = build_motion_generator(payload)
             total_duration = max(generator.duration_seconds, MOVEMENT_LOOP_INTERVAL_SECONDS)
             started = monotonic()
@@ -956,32 +974,72 @@ class DualArmAdapter:
                     self._movement_state.note = "Movement interrupted."
                     return
 
-                self._assert_arm_ready_for_motion(arm)
                 target = generator.sample(elapsed)
-                with self._command_lock:
-                    self._write_control_step(arm, target, reason=definition.name)
+                for arm in target_arms:
+                    self._assert_arm_ready_for_motion(arm)
+                    arm_target = self._movement_targets_for_arm(arm, target, execution_mode)
+                    with self._command_lock:
+                        self._write_control_step(arm, arm_target, reason=definition.name)
 
                 self._movement_state.progress = clamp(elapsed / total_duration, 0.0, 1.0)
                 self._movement_state.updated_at = datetime.now(UTC).isoformat()
                 active_preset = self._movement_state.preset_id or definition.default_preset_id or "default"
-                self._movement_state.note = f"{definition.name} ({active_preset}) in progress."
+                self._movement_state.note = (
+                    f"{definition.name} ({active_preset}) "
+                    f"{execution_mode.value} on {', '.join(self._movement_state.arm_ids)}."
+                )
                 sleep(MOVEMENT_LOOP_INTERVAL_SECONDS)
 
             self._movement_state.status = MovementStatus.COMPLETED
             self._movement_state.progress = 1.0
             self._movement_state.updated_at = datetime.now(UTC).isoformat()
             active_preset = self._movement_state.preset_id or definition.default_preset_id or "default"
-            self._movement_state.note = f"{definition.name} ({active_preset}) completed."
+            self._movement_state.note = (
+                f"{definition.name} ({active_preset}) "
+                f"{execution_mode.value} completed on {', '.join(self._movement_state.arm_ids)}."
+            )
         except Exception as exc:
             self._movement_state.status = MovementStatus.ERROR
             self._movement_state.updated_at = datetime.now(UTC).isoformat()
             self._movement_state.note = str(exc)
-            arm = self.arms.get(payload.arm_id)
-            if arm is not None:
-                arm.last_command_error = str(exc)
-                arm.notes = f"Movement error: {exc}"
+            for arm_id in self._movement_state.arm_ids or ([payload.arm_id] if payload.arm_id else []):
+                arm = self.arms.get(arm_id)
+                if arm is not None:
+                    arm.last_command_error = str(exc)
+                    arm.notes = f"Movement error: {exc}"
         finally:
             self._movement_thread = None
+
+    def _resolve_movement_execution_mode(self, payload: MovementRunRequest) -> ExecutionMode:
+        if payload.target_scope == MovementTargetScope.SINGLE:
+            return ExecutionMode.UNISON
+        return payload.execution_mode
+
+    def _resolve_movement_arms(self, payload: MovementRunRequest) -> list[ArmRuntime]:
+        if payload.target_scope == MovementTargetScope.SINGLE:
+            if not payload.arm_id:
+                raise ValueError("An arm_id is required for single-arm movement execution.")
+            return [self._arm(payload.arm_id)]
+
+        arms = sorted(self.arms.values(), key=lambda arm: arm.channel.value)
+        if len(arms) < 2:
+            raise ValueError("Dual-arm movement execution requires two configured arms.")
+        return arms
+
+    def _movement_targets_for_arm(
+        self,
+        arm: ArmRuntime,
+        targets: dict[str, float],
+        execution_mode: ExecutionMode,
+    ) -> dict[str, float]:
+        if execution_mode != ExecutionMode.MIRROR or arm.channel != ArmChannel.LEFT:
+            return dict(targets)
+
+        mirrored = dict(targets)
+        for joint_name in ("shoulder_pan", "wrist_roll"):
+            if joint_name in mirrored:
+                mirrored[joint_name] = round(-mirrored[joint_name], 2)
+        return mirrored
 
     def _write_control_step(self, arm: ArmRuntime, targets: dict[str, float], *, reason: str) -> None:
         current_servos = self.refresh_telemetry(arm.arm_id)

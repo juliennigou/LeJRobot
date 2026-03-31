@@ -101,6 +101,11 @@ class MovementStatus(str, Enum):
     ERROR = "error"
 
 
+class MovementTargetScope(str, Enum):
+    SINGLE = "single"
+    BOTH = "both"
+
+
 class RobotConfig(BaseModel):
     assembly: str = "Follower"
     follower_id: str = "follower_arm"
@@ -269,7 +274,10 @@ class MovementRunState(BaseModel):
     status: MovementStatus = MovementStatus.IDLE
     movement_id: str | None = None
     preset_id: str | None = None
+    target_scope: MovementTargetScope = MovementTargetScope.SINGLE
+    execution_mode: ExecutionMode = ExecutionMode.UNISON
     arm_id: str | None = None
+    arm_ids: list[str] = Field(default_factory=list)
     arm_type: ArmType | None = None
     started_at: str | None = None
     updated_at: str | None = None
@@ -356,7 +364,9 @@ class ExecutionModeUpdate(BaseModel):
 
 class MovementRunRequest(BaseModel):
     movement_id: str
-    arm_id: str
+    target_scope: MovementTargetScope = MovementTargetScope.SINGLE
+    execution_mode: ExecutionMode = ExecutionMode.UNISON
+    arm_id: str | None = None
     preset_id: str | None = None
     frequency_hz: float | None = Field(default=None, gt=0.1, le=4.0)
     cycles: int | None = Field(default=None, ge=1, le=32)
