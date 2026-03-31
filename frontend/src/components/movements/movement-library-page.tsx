@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Slider } from "@/components/ui/slider";
 
 const JOINT_GUIDE = [
   { name: "Shoulder Pan", role: "Sweeps the whole arm left and right." },
@@ -30,16 +31,36 @@ export function MovementLibraryPage({
   library,
   arms,
   selectedArmId,
+  selectedPresetId,
+  frequencyHz,
+  cycles,
+  amplitudeScale,
+  softness,
   busyAction,
   onSelectArm,
+  onSelectPreset,
+  onFrequencyChange,
+  onCyclesChange,
+  onAmplitudeScaleChange,
+  onSoftnessChange,
   onRunMovement,
   onStopMovement,
 }: {
   library: MovementLibraryState | null;
   arms: ArmAdapterState[];
   selectedArmId: string | null;
+  selectedPresetId: string;
+  frequencyHz: number;
+  cycles: number;
+  amplitudeScale: number;
+  softness: number;
   busyAction: string | null;
   onSelectArm: (armId: string) => void;
+  onSelectPreset: (presetId: string) => void;
+  onFrequencyChange: (value: number) => void;
+  onCyclesChange: (value: number) => void;
+  onAmplitudeScaleChange: (value: number) => void;
+  onSoftnessChange: (value: number) => void;
   onRunMovement: (movementId: string) => void;
   onStopMovement: () => void;
 }) {
@@ -48,6 +69,14 @@ export function MovementLibraryPage({
     progress: 0,
   };
   const selectedArm = arms.find((arm) => arm.arm_id === selectedArmId) ?? null;
+  const waveMovement = library?.movements.find((movement) => movement.movement_id === "wave") ?? null;
+  const selectedPreset =
+    waveMovement?.presets.find((preset) => preset.preset_id === selectedPresetId) ??
+    waveMovement?.presets[0] ??
+    null;
+  const phaseChain = selectedPreset?.joint_profiles
+    .map((profile) => `${titleize(profile.joint_name)} ${profile.phase_delay_radians.toFixed(2)}rad`)
+    .join(" -> ");
 
   return (
     <section className="grid gap-6">
@@ -60,8 +89,9 @@ export function MovementLibraryPage({
           </div>
           <CardTitle className="text-3xl text-white">Single-Arm Movement Studio</CardTitle>
           <CardDescription className="max-w-3xl text-slate-300">
-            Start with a library of explicit arm motions before binding everything to music. The first movement is a
-            calibrated `wave` that uses the shoulder, elbow, and wrist chain to create a readable greeting gesture.
+            Start with reusable motion primitives before binding everything to music. The first movement is a
+            calibrated `wave` built from one shared oscillator, progressive phase delays, and a stronger wrist
+            signature than shoulder travel.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -109,7 +139,7 @@ export function MovementLibraryPage({
           <CardHeader>
             <CardTitle className="text-white">6 Joint Roles</CardTitle>
             <CardDescription className="text-slate-300">
-              These are the movement families we will compose into a reusable library.
+              The wave is designed as layered motion: pose joints first, expression joints last.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
@@ -128,7 +158,8 @@ export function MovementLibraryPage({
           <CardHeader>
             <CardTitle className="text-white">Available Movements</CardTitle>
             <CardDescription className="text-slate-300">
-              Movements are explicit keyframed gestures. For now we start with one: `wave`.
+              Movements are high-level primitives. `wave` is generated from a global oscillator with per-joint amplitude
+              and phase offsets.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -147,6 +178,7 @@ export function MovementLibraryPage({
                         <Badge>{movement.name}</Badge>
                         <Badge variant="muted">{movement.duration_seconds.toFixed(1)}s</Badge>
                         <Badge variant="accent">{movement.recommended_arm ?? "follower"}</Badge>
+                        <Badge variant="muted">{movement.controller}</Badge>
                       </div>
                       <p className="mt-4 text-base font-semibold text-white">{movement.summary}</p>
                       <p className="mt-2 text-sm text-slate-400">{movement.description}</p>
@@ -187,6 +219,97 @@ export function MovementLibraryPage({
                       </Badge>
                     ))}
                   </div>
+
+                  {movement.movement_id === "wave" ? (
+                    <div className="mt-6 grid gap-5 rounded-[22px] border border-white/10 bg-black/25 p-4">
+                      <div>
+                        <p className="text-sm font-semibold text-white">Style Presets</p>
+                        <p className="mt-1 text-sm text-slate-400">
+                          Shoulder motion stays restrained while the wrist carries the signature of the gesture.
+                        </p>
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          {movement.presets.map((preset) => (
+                            <button
+                              key={preset.preset_id}
+                              className={`rounded-2xl border px-4 py-3 text-left transition ${
+                                selectedPresetId === preset.preset_id
+                                  ? "border-primary/40 bg-primary/10 text-white"
+                                  : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20"
+                              }`}
+                              onClick={() => onSelectPreset(preset.preset_id)}
+                              type="button"
+                            >
+                              <p className="text-sm font-semibold">{preset.label}</p>
+                              <p className="mt-1 max-w-xs text-xs text-slate-400">{preset.summary}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <TuningSlider
+                          label="Tempo"
+                          value={frequencyHz}
+                          display={`${frequencyHz.toFixed(2)} Hz`}
+                          min={0.5}
+                          max={1.5}
+                          step={0.01}
+                          onChange={onFrequencyChange}
+                        />
+                        <TuningSlider
+                          label="Cycles"
+                          value={cycles}
+                          display={`${cycles.toFixed(0)} cycles`}
+                          min={2}
+                          max={8}
+                          step={1}
+                          onChange={(value) => onCyclesChange(Math.round(value))}
+                        />
+                        <TuningSlider
+                          label="Amplitude"
+                          value={amplitudeScale}
+                          display={`${amplitudeScale.toFixed(2)}x`}
+                          min={0.5}
+                          max={1.6}
+                          step={0.01}
+                          onChange={onAmplitudeScaleChange}
+                        />
+                        <TuningSlider
+                          label="Softness"
+                          value={softness}
+                          display={softness.toFixed(2)}
+                          min={0.2}
+                          max={1.0}
+                          step={0.01}
+                          onChange={onSoftnessChange}
+                        />
+                      </div>
+
+                      <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+                        <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm font-semibold text-white">Prepared Base Pose</p>
+                          <p className="mt-1 text-sm text-slate-400">
+                            The arm stays slightly lifted, elbow bent, and wrist pre-flexed so the gesture already looks
+                            ready to move.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {Object.entries(movement.neutral_pose).map(([joint, value]) => (
+                              <Badge key={joint} variant="muted">
+                                {titleize(joint)} {value.toFixed(0)}°
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm font-semibold text-white">Phase Chain</p>
+                          <p className="mt-1 text-sm text-slate-400">
+                            Shoulder starts first, elbow follows, wrist finishes the wave.
+                          </p>
+                          <p className="mt-3 text-sm text-slate-200">{phaseChain ?? "No preset selected."}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
@@ -205,6 +328,7 @@ export function MovementLibraryPage({
               <div className="flex flex-wrap items-center gap-3">
                 <Badge>{active.movement_id ?? "No movement"}</Badge>
                 <Badge variant={active.status === "running" ? "accent" : "muted"}>{active.status}</Badge>
+                {active.preset_id ? <Badge variant="muted">{active.preset_id}</Badge> : null}
                 {active.arm_id ? <Badge variant="muted">{active.arm_id}</Badge> : null}
               </div>
               <p className="mt-4 text-sm text-slate-300">{active.note ?? "Pick an arm and run a movement."}</p>
@@ -221,7 +345,7 @@ export function MovementLibraryPage({
               <MotionHint
                 icon={Waves}
                 title="Wave Anatomy"
-                description="Shoulder lift raises the arm, elbow flex folds it, and wrist roll creates the visible waving motion."
+                description="One oscillator drives the whole gesture. Small shoulder motion leads, elbow follows, and wrist flex plus wrist roll provide the clearest visible wave."
               />
               <MotionHint
                 icon={Hand}
@@ -231,13 +355,48 @@ export function MovementLibraryPage({
               <MotionHint
                 icon={Activity}
                 title="Next Library Steps"
-                description="After wave, we can add punch, bloom, sweep, point, and idle-loop gestures with the same keyframe structure."
+                description="After wave, we can add punch, bloom, sweep, point, and idle-loop gestures with the same oscillator and synergy structure."
               />
             </div>
           </CardContent>
         </Card>
       </div>
     </section>
+  );
+}
+
+function TuningSlider({
+  label,
+  value,
+  display,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  display: string;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-white">{label}</p>
+        <Badge variant="muted">{display}</Badge>
+      </div>
+      <Slider
+        className="mt-4"
+        value={[value]}
+        min={min}
+        max={max}
+        step={step}
+        onValueChange={(values) => onChange(values[0] ?? value)}
+      />
+    </div>
   );
 }
 

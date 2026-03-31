@@ -246,11 +246,36 @@ export interface MovementDefinition {
   duration_seconds: number;
   focus_joints: string[];
   recommended_arm?: ArmType | null;
+  controller: string;
+  default_preset_id?: string | null;
+  neutral_pose: Record<string, number>;
+  presets: MovementPreset[];
+}
+
+export interface MovementJointProfile {
+  joint_name: string;
+  base_angle: number;
+  amplitude: number;
+  phase_delay_radians: number;
+  bias: number;
+}
+
+export interface MovementPreset {
+  preset_id: string;
+  label: string;
+  summary: string;
+  frequency_hz: number;
+  cycles: number;
+  amplitude_scale: number;
+  softness: number;
+  asymmetry: number;
+  joint_profiles: MovementJointProfile[];
 }
 
 export interface MovementRunState {
   status: MovementStatus;
   movement_id?: string | null;
+  preset_id?: string | null;
   arm_id?: string | null;
   arm_type?: ArmType | null;
   started_at?: string | null;

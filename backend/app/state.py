@@ -432,7 +432,7 @@ class RobotStateStore:
         return self.arm_adapter.movement_library_snapshot()
 
     def run_movement(self, payload: MovementRunRequest) -> MovementLibraryState:
-        self.arm_adapter.start_movement(payload.arm_id, payload.movement_id)
+        self.arm_adapter.start_movement(payload)
         self.mode = DanceMode.MANUAL
         self.transport.playing = False
         return self.movement_library()

@@ -25,6 +25,7 @@ import type {
   AnalysisStatusResponse,
   AudioAnalysis,
   ChoreographyTimeline,
+  MovementPreset,
   RobotState,
   TrackSummary,
 } from "@/lib/types";
@@ -68,6 +69,11 @@ function App() {
   const [hardwareActionBusy, setHardwareActionBusy] = useState<string | null>(null);
   const [selectedMovementArmId, setSelectedMovementArmId] = useState<string | null>(null);
   const [movementBusyAction, setMovementBusyAction] = useState<string | null>(null);
+  const [selectedMovementPresetId, setSelectedMovementPresetId] = useState<string>("normal");
+  const [movementFrequencyHz, setMovementFrequencyHz] = useState(0.9);
+  const [movementCycles, setMovementCycles] = useState(4);
+  const [movementAmplitudeScale, setMovementAmplitudeScale] = useState(1.0);
+  const [movementSoftness, setMovementSoftness] = useState(0.72);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -176,6 +182,20 @@ function App() {
 
   const currentTrack = state?.transport.current_track ?? null;
   const movementLibrary = state?.movement_library ?? null;
+  const waveDefinition = useMemo(
+    () => movementLibrary?.movements.find((movement) => movement.movement_id === "wave") ?? null,
+    [movementLibrary],
+  );
+  const selectedMovementPreset = useMemo<MovementPreset | null>(() => {
+    if (!waveDefinition) {
+      return null;
+    }
+    return (
+      waveDefinition.presets.find((preset) => preset.preset_id === selectedMovementPresetId) ??
+      waveDefinition.presets[0] ??
+      null
+    );
+  }, [selectedMovementPresetId, waveDefinition]);
 
   useEffect(() => {
     if (!currentTrack) {
@@ -380,6 +400,26 @@ function App() {
     }
   }, [selectedMovementArmId, state?.dual_arm.arms]);
 
+  useEffect(() => {
+    if (!waveDefinition) {
+      return;
+    }
+    const defaultPresetId = waveDefinition.default_preset_id ?? waveDefinition.presets[0]?.preset_id ?? "normal";
+    if (!waveDefinition.presets.some((preset) => preset.preset_id === selectedMovementPresetId)) {
+      setSelectedMovementPresetId(defaultPresetId);
+    }
+  }, [selectedMovementPresetId, waveDefinition]);
+
+  useEffect(() => {
+    if (!selectedMovementPreset) {
+      return;
+    }
+    setMovementFrequencyHz(selectedMovementPreset.frequency_hz);
+    setMovementCycles(selectedMovementPreset.cycles);
+    setMovementAmplitudeScale(selectedMovementPreset.amplitude_scale);
+    setMovementSoftness(selectedMovementPreset.softness);
+  }, [selectedMovementPreset?.preset_id]);
+
   const handleRunMovement = useCallback(
     async (movementId: string) => {
       if (!selectedMovementArmId) {
@@ -389,7 +429,13 @@ function App() {
 
       setMovementBusyAction(`run:${movementId}`);
       try {
-        await runMovement(selectedMovementArmId, movementId);
+        await runMovement(selectedMovementArmId, movementId, {
+          preset_id: selectedMovementPresetId,
+          frequency_hz: movementFrequencyHz,
+          cycles: movementCycles,
+          amplitude_scale: movementAmplitudeScale,
+          softness: movementSoftness,
+        });
         await refreshState();
         setError(null);
       } catch (err) {
@@ -398,7 +444,7 @@ function App() {
         setMovementBusyAction(null);
       }
     },
-    [selectedMovementArmId],
+    [movementAmplitudeScale, movementCycles, movementFrequencyHz, movementSoftness, selectedMovementArmId, selectedMovementPresetId],
   );
 
   const handleStopMovement = useCallback(async () => {
@@ -607,8 +653,18 @@ function App() {
             library={movementLibrary}
             arms={state?.dual_arm.arms ?? []}
             selectedArmId={selectedMovementArmId}
+            selectedPresetId={selectedMovementPresetId}
+            frequencyHz={movementFrequencyHz}
+            cycles={movementCycles}
+            amplitudeScale={movementAmplitudeScale}
+            softness={movementSoftness}
             busyAction={movementBusyAction}
             onSelectArm={setSelectedMovementArmId}
+            onSelectPreset={setSelectedMovementPresetId}
+            onFrequencyChange={setMovementFrequencyHz}
+            onCyclesChange={setMovementCycles}
+            onAmplitudeScaleChange={setMovementAmplitudeScale}
+            onSoftnessChange={setMovementSoftness}
             onRunMovement={(movementId) => void handleRunMovement(movementId)}
             onStopMovement={() => void handleStopMovement()}
           />

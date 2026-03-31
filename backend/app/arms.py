@@ -36,6 +36,7 @@ from .models import (
     ExecutionMode,
     MovementDefinition,
     MovementLibraryState,
+    MovementRunRequest,
     MovementRunState,
     MovementStatus,
     MotionCue,
@@ -43,7 +44,7 @@ from .models import (
     SceneName,
     ServoState,
 )
-from .movement_library import get_movement, interpolate_targets, list_movements
+from .movement_library import build_motion_generator, get_movement, list_movements
 
 DEFAULT_JOINT_LAYOUT = [
     (1, "shoulder_pan"),
@@ -591,12 +592,12 @@ class DualArmAdapter:
             active=self._movement_state.model_copy(deep=True),
         )
 
-    def start_movement(self, arm_id: str, movement_id: str) -> None:
-        arm = self._arm(arm_id)
-        definition = self._movement_definitions.get(movement_id)
-        spec = get_movement(movement_id)
+    def start_movement(self, payload: MovementRunRequest) -> None:
+        arm = self._arm(payload.arm_id)
+        definition = self._movement_definitions.get(payload.movement_id)
+        spec = get_movement(payload.movement_id)
         if definition is None or spec is None:
-            raise ValueError(f"Unknown movement '{movement_id}'")
+            raise ValueError(f"Unknown movement '{payload.movement_id}'")
         if self._movement_state.status == MovementStatus.RUNNING:
             raise ValueError("A movement is already running")
 
@@ -605,19 +606,20 @@ class DualArmAdapter:
         now = datetime.now(UTC).isoformat()
         self._movement_state = MovementRunState(
             status=MovementStatus.RUNNING,
-            movement_id=movement_id,
+            movement_id=payload.movement_id,
+            preset_id=payload.preset_id or definition.default_preset_id,
             arm_id=arm.arm_id,
             arm_type=arm.arm_type,
             started_at=now,
             updated_at=now,
-            note=f"Running {definition.name} on {arm.arm_id}.",
+            note=f"Running {definition.name} ({payload.preset_id or definition.default_preset_id or 'default'}) on {arm.arm_id}.",
             progress=0.0,
         )
         self._movement_thread = Thread(
             target=self._run_movement_thread,
-            args=(arm.arm_id, definition),
+            args=(payload, definition),
             daemon=True,
-            name=f"movement-{movement_id}-{arm.arm_id}",
+            name=f"movement-{payload.movement_id}-{arm.arm_id}",
         )
         self._movement_thread.start()
 
@@ -894,15 +896,13 @@ class DualArmAdapter:
 
     def _run_movement_thread(
         self,
-        arm_id: str,
+        payload: MovementRunRequest,
         definition: MovementDefinition,
     ) -> None:
         try:
-            arm = self._arm(arm_id)
-            spec = get_movement(definition.movement_id)
-            if spec is None:
-                raise ValueError(f"Unknown movement '{definition.movement_id}'")
-            total_duration = max(definition.duration_seconds, MOVEMENT_LOOP_INTERVAL_SECONDS)
+            arm = self._arm(payload.arm_id)
+            generator = build_motion_generator(payload)
+            total_duration = max(generator.duration_seconds, MOVEMENT_LOOP_INTERVAL_SECONDS)
             started = monotonic()
             while True:
                 elapsed = monotonic() - started
@@ -915,24 +915,26 @@ class DualArmAdapter:
                     return
 
                 self._assert_arm_ready_for_motion(arm)
-                target = interpolate_targets(spec, elapsed)
+                target = generator.sample(elapsed)
                 with self._command_lock:
                     self._write_control_step(arm, target, reason=definition.name)
 
                 self._movement_state.progress = clamp(elapsed / total_duration, 0.0, 1.0)
                 self._movement_state.updated_at = datetime.now(UTC).isoformat()
-                self._movement_state.note = f"{definition.name} in progress."
+                active_preset = self._movement_state.preset_id or definition.default_preset_id or "default"
+                self._movement_state.note = f"{definition.name} ({active_preset}) in progress."
                 sleep(MOVEMENT_LOOP_INTERVAL_SECONDS)
 
             self._movement_state.status = MovementStatus.COMPLETED
             self._movement_state.progress = 1.0
             self._movement_state.updated_at = datetime.now(UTC).isoformat()
-            self._movement_state.note = f"{definition.name} completed."
+            active_preset = self._movement_state.preset_id or definition.default_preset_id or "default"
+            self._movement_state.note = f"{definition.name} ({active_preset}) completed."
         except Exception as exc:
             self._movement_state.status = MovementStatus.ERROR
             self._movement_state.updated_at = datetime.now(UTC).isoformat()
             self._movement_state.note = str(exc)
-            arm = self.arms.get(arm_id)
+            arm = self.arms.get(payload.arm_id)
             if arm is not None:
                 arm.last_command_error = str(exc)
                 arm.notes = f"Movement error: {exc}"
