@@ -60,6 +60,8 @@ The launcher supports the same override:
 APP_BACKEND_PORT=8001 ./run_app.sh
 ```
 
+Vite hot-reloads frontend changes. A restart should not be needed for normal UI edits.
+
 ## Music Search
 
 The app now supports song search through Jamendo's API.
@@ -102,6 +104,45 @@ cd backend
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+## Docker
+
+You can run the full stack with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+- frontend: `http://127.0.0.1:5173`
+- backend: `http://127.0.0.1:8000`
+
+Notes:
+
+- The frontend container serves the built app through nginx and proxies `/api/*` and `/media/uploads/*` to the backend container.
+- The repo `.data/` directory is mounted into the backend container so uploads and analysis cache persist across restarts.
+- If you want Jamendo search inside Docker, keep `.env.local` at the repo root with `JAMENDO_CLIENT_ID=...`.
+
+## Workflow
+
+From now on, each ticket should move through a feature branch and pull request.
+
+Recommended flow:
+
+```bash
+git checkout -b feat/some-ticket
+# implement
+git push -u origin feat/some-ticket
+```
+
+Then open a PR against `main` and link the ticket in the PR body, for example:
+
+```text
+Closes #15
+```
+
+Direct pushes to `main` should be avoided for feature work. The GitHub Actions workflow in `.github/workflows/ci.yml` now validates backend, frontend, and Docker startup on every PR.
 
 ## Next step
 

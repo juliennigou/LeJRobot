@@ -12,8 +12,18 @@ import {
   Upload,
   Waves,
 } from "lucide-react";
-import { fetchState, searchTracks, selectTrack, setTransport, uploadTrack } from "@/lib/api";
-import type { RobotState, TrackSummary } from "@/lib/types";
+import {
+  fetchAnalysis,
+  fetchAnalysisStatus,
+  fetchChoreography,
+  fetchState,
+  searchTracks,
+  selectTrack,
+  setTransport,
+  startAnalysis,
+  uploadTrack,
+} from "@/lib/api";
+import type { AnalysisStatusResponse, AudioAnalysis, ChoreographyTimeline, RobotState, SongSection, TrackSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +41,58 @@ function formatDuration(durationSeconds?: number | null) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatDate(value?: string | null) {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
+}
+
+function average(values: number[]) {
+  if (!values.length) {
+    return 0;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function downsample(values: number[], count: number) {
+  if (!values.length || count <= 0) {
+    return [];
+  }
+
+  if (values.length <= count) {
+    return values;
+  }
+
+  const bucketSize = values.length / count;
+  return Array.from({ length: count }, (_, index) => {
+    const start = Math.floor(index * bucketSize);
+    const end = Math.min(values.length, Math.floor((index + 1) * bucketSize));
+    const slice = values.slice(start, Math.max(start + 1, end));
+    return average(slice);
+  });
+}
+
+function sampleSeries(values: number[], index: number) {
+  if (!values.length) {
+    return 0;
+  }
+
+  const safeIndex = Math.max(0, Math.min(values.length - 1, index));
+  return values[safeIndex] ?? 0;
+}
+
+function currentSection(sections: SongSection[], timeSeconds: number) {
+  return sections.find((section) => timeSeconds >= section.start_seconds && timeSeconds < section.end_seconds) ?? sections[0] ?? null;
+}
+
 function App() {
   const [state, setState] = useState<RobotState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +105,11 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+  const [analysis, setAnalysis] = useState<AudioAnalysis | null>(null);
+  const [choreography, setChoreography] = useState<ChoreographyTimeline | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatusResponse | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -147,13 +214,102 @@ function App() {
   }, []);
 
   const currentTrack = state?.transport.current_track ?? null;
+  useEffect(() => {
+    if (!currentTrack) {
+      setAnalysis(null);
+      setChoreography(null);
+      setAnalysisStatus(null);
+      setAnalysisError(null);
+      setAnalysisLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const hydrateAnalysis = async () => {
+      setAnalysisLoading(true);
+      setAnalysisError(null);
+
+      try {
+        const status = await fetchAnalysisStatus(currentTrack.track_id, currentTrack.source);
+        if (cancelled) {
+          return;
+        }
+        setAnalysisStatus(status);
+
+        const start = status.status === "ready" ? status : await startAnalysis(currentTrack.track_id, currentTrack.source);
+        if (cancelled) {
+          return;
+        }
+        setAnalysisStatus({
+          track_id: start.track_id,
+          source: start.source,
+          status: start.status,
+          progress: start.progress,
+          error: null,
+        });
+
+        const nextAnalysis = await fetchAnalysis(currentTrack.track_id, currentTrack.source);
+        if (cancelled) {
+          return;
+        }
+        setAnalysis(nextAnalysis);
+
+        try {
+          const nextChoreography = await fetchChoreography(currentTrack.track_id, currentTrack.source);
+          if (!cancelled) {
+            setChoreography(nextChoreography);
+          }
+        } catch {
+          if (!cancelled) {
+            setChoreography(nextAnalysis.choreography);
+          }
+        }
+
+        if (!cancelled) {
+          setAnalysisStatus({
+            track_id: nextAnalysis.track_id,
+            source: nextAnalysis.source,
+            status: "ready",
+            progress: 100,
+            error: null,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAnalysis(null);
+          setChoreography(null);
+          setAnalysisError(err instanceof Error ? err.message : "Unable to load audio analysis");
+        }
+      } finally {
+        if (!cancelled) {
+          setAnalysisLoading(false);
+        }
+      }
+    };
+
+    void hydrateAnalysis();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrack?.track_id, currentTrack?.source]);
+
   const activeTrackLabel = currentTrack
     ? `${currentTrack.title} - ${currentTrack.artist}`
     : "No song selected";
-  const spectrum = state?.spectrum ?? Array.from({ length: 24 }, (_, index) => 28 + ((index * 7) % 46));
-  const bpm = state?.transport.bpm ?? 120;
-  const energy = state?.transport.energy ?? 0.5;
+  const bpm = analysis ? analysis.bpm : (state?.transport.bpm ?? 120);
+  const energy = analysis ? average(analysis.energy.rms) : (state?.transport.energy ?? 0.5);
   const positionSeconds = state?.transport.position_seconds ?? 0;
+  const analysisFrameIndex = analysis ? Math.floor(positionSeconds * analysis.energy.frame_hz) : 0;
+  const waveformBars = analysis
+    ? downsample(analysis.waveform.peaks, 56).map((value) => Math.round(14 + value * 86))
+    : Array.from({ length: 24 }, (_, index) => 28 + ((index * 7) % 46));
+  const lowBandValue = analysis ? sampleSeries(analysis.bands.low, analysisFrameIndex) : 0;
+  const midBandValue = analysis ? sampleSeries(analysis.bands.mid, analysisFrameIndex) : 0;
+  const highBandValue = analysis ? sampleSeries(analysis.bands.high, analysisFrameIndex) : 0;
+  const activeSection = analysis ? currentSection(analysis.sections, positionSeconds) : null;
+  const cueSummary = choreography ?? analysis?.choreography ?? null;
 
   return (
     <main className="relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 lg:px-10">
@@ -285,8 +441,8 @@ function App() {
                   </div>
                 </div>
 
-                <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                  <StatCard label="BPM" value={`${bpm}`} icon={Disc3} />
+                  <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                  <StatCard label="BPM" value={analysis ? bpm.toFixed(2) : `${Math.round(bpm)}`} icon={Disc3} />
                   <StatCard label="Energy" value={energy.toFixed(2)} icon={Sparkles} />
                   <StatCard label="Position" value={`${positionSeconds.toFixed(1)}s`} icon={Clock3} />
                 </div>
@@ -335,6 +491,12 @@ function App() {
                   {error}
                 </div>
               ) : null}
+
+              {analysisError ? (
+                <div className="mt-4 rounded-[20px] border border-destructive/30 bg-destructive/10 p-4 text-sm text-red-200">
+                  {analysisError}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </section>
@@ -358,65 +520,107 @@ function App() {
                 <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="hud-label">Live Spectrum</p>
+                      <p className="hud-label">Analysis Waveform</p>
                       <p className="mt-2 text-lg text-slate-300">
-                        Visual energy bands from the current motion state.
+                        {analysis
+                          ? "Backend-derived waveform and band activity for the selected track."
+                          : "Select a song to load its waveform and band envelopes."}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
                       <Waves className="h-4 w-4 text-primary" />
-                      {spectrum.length} bands
+                      {analysis ? `${analysis.waveform.bucket_count} waveform buckets` : `${waveformBars.length} bars`}
                     </div>
                   </div>
 
-                  <div className="mt-8 flex h-72 items-end gap-2 rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,32,0.82),rgba(4,9,18,0.95))] px-5 py-6">
-                    {spectrum.map((value, index) => (
-                      <div
-                        key={`${value}-${index}`}
-                        className="animate-pulse-grid rounded-full bg-gradient-to-t from-primary/80 via-blue-300 to-white"
-                        style={{
-                          height: `${Math.max(12, value)}%`,
-                          width: "100%",
-                          animationDelay: `${index * 55}ms`,
-                        }}
-                      />
-                    ))}
-                  </div>
+                  {analysisLoading ? (
+                    <div className="mt-8 rounded-[24px] border border-white/10 bg-black/20 p-5 text-sm text-slate-300">
+                      Computing audio analysis for the selected track.
+                    </div>
+                  ) : null}
+
+                  {!analysisLoading && analysisError ? (
+                    <div className="mt-8 rounded-[24px] border border-destructive/30 bg-destructive/10 p-5 text-sm text-red-200">
+                      {analysisError}
+                    </div>
+                  ) : null}
+
+                  {!analysisLoading && !analysisError ? (
+                    <>
+                      <div className="mt-8 flex h-72 items-end gap-2 rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,32,0.82),rgba(4,9,18,0.95))] px-5 py-6">
+                        {waveformBars.map((value, index) => (
+                          <div
+                            key={`${value}-${index}`}
+                            className="rounded-full bg-gradient-to-t from-primary/80 via-blue-300 to-white"
+                            style={{
+                              height: `${Math.max(12, value)}%`,
+                              width: "100%",
+                              opacity: activeSection ? 0.94 : 0.75,
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="mt-6 grid gap-4 lg:grid-cols-4">
+                        <BandCard label="Low Band" value={lowBandValue} />
+                        <BandCard label="Mid Band" value={midBandValue} />
+                        <BandCard label="High Band" value={highBandValue} />
+                        <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="hud-label">Current Section</p>
+                          <p className="mt-3 text-lg font-semibold capitalize text-white">
+                            {activeSection?.label ?? "Unknown"}
+                          </p>
+                          <p className="mt-2 text-sm text-slate-400">
+                            {activeSection ? `${formatDuration(activeSection.start_seconds)} - ${formatDuration(activeSection.end_seconds)}` : "No section markers"}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               </TabsContent>
 
               <TabsContent value="metrics" className="pt-6">
                 <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
                   <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
-                    <p className="hud-label">Motion Readout</p>
+                    <p className="hud-label">Analysis Readout</p>
                     <div className="mt-6 grid gap-4">
-                      <MetricRow label="Estimated BPM" value={`${bpm}`} progress={Math.min(100, (bpm / 180) * 100)} />
-                      <MetricRow label="Energy Level" value={energy.toFixed(2)} progress={energy * 100} />
                       <MetricRow
-                        label="Signal Confidence"
-                        value={`${state?.sync_quality ?? 0}%`}
-                        progress={state?.sync_quality ?? 0}
+                        label="Detected BPM"
+                        value={analysis ? analysis.bpm.toFixed(2) : `${Math.round(bpm)}`}
+                        progress={Math.min(100, (bpm / 180) * 100)}
+                      />
+                      <MetricRow label="Mean RMS Energy" value={energy.toFixed(2)} progress={energy * 100} />
+                      <MetricRow
+                        label="Tempo Confidence"
+                        value={analysis ? `${Math.round(analysis.tempo_confidence * 100)}%` : "--"}
+                        progress={analysis ? analysis.tempo_confidence * 100 : 0}
+                      />
+                      <MetricRow
+                        label="Beat Count"
+                        value={analysis ? `${analysis.beats.length}` : "--"}
+                        progress={analysis ? Math.min(100, analysis.beats.length * 3) : 0}
                       />
                     </div>
                   </div>
 
                   <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
-                    <p className="hud-label">Interface Notes</p>
+                    <p className="hud-label">Analysis Summary</p>
                     <div className="mt-6 grid gap-4 sm:grid-cols-3">
                       <InfoTile
                         icon={Activity}
-                        title="Music First"
-                        text="The UI now leads with discovery and analysis instead of direct robot controls."
+                        title="Downbeats"
+                        text={analysis ? `${analysis.downbeats.length} bar accents detected for larger choreography changes.` : "No analysis loaded yet."}
                       />
                       <InfoTile
                         icon={BarChart3}
-                        title="Readable Signals"
-                        text="BPM, energy, and spectrum are presented as the primary motion inputs."
+                        title="Sections"
+                        text={analysis ? `${analysis.sections.length} section blocks inferred from energy and onset changes.` : "Section detection appears after analysis runs."}
                       />
                       <InfoTile
                         icon={Music2}
-                        title="Robot Next"
-                        text="Once this layer feels right, we can attach both arms to the music engine."
+                        title="Cue Timeline"
+                        text={cueSummary ? `${cueSummary.global_cues.length} global cues and ${cueSummary.arm_left_cues.length}/${cueSummary.arm_right_cues.length} arm cues are ready.` : "Cue generation appears with the analysis payload."}
                       />
                     </div>
                   </div>
@@ -432,29 +636,58 @@ function App() {
                       <MetadataRow label="Artist" value={currentTrack?.artist ?? "No track selected"} />
                       <MetadataRow label="Duration" value={formatDuration(currentTrack?.duration_seconds)} />
                       <MetadataRow label="Source" value={currentTrack?.source ?? "jamendo"} />
-                      <MetadataRow label="Pattern Bias" value={currentTrack?.motion_profile.pattern_bias ?? "groove"} />
+                      <MetadataRow label="Analysis Status" value={analysisStatus?.status ?? currentTrack?.analysis_status ?? "none"} />
+                      <MetadataRow label="Sample Rate" value={analysis ? `${analysis.sample_rate} Hz` : "--"} />
+                      <MetadataRow label="Generated At" value={analysis ? formatDate(analysis.generated_at) : "--"} />
                     </div>
                   </div>
 
                   <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
-                    <p className="hud-label">Selection Status</p>
+                    <p className="hud-label">Analysis Details</p>
                     <div className="mt-6 space-y-4">
                       <StatusBanner
-                        title={loading ? "Loading backend state" : "Music interface online"}
+                        title={analysisLoading ? "Analysis running" : analysis ? "Analysis ready" : loading ? "Loading backend state" : "Waiting on track"}
                         note={
-                          loading
-                            ? "Fetching transport and song state."
-                            : "Search, select, preview, and inspect tracks before robot hookup."
+                          analysisLoading
+                            ? "The backend is decoding audio and computing BPM, beats, sections, and cue envelopes."
+                            : analysis
+                              ? `Detected ${analysis.beats.length} beats and ${analysis.sections.length} sections for this track.`
+                              : loading
+                                ? "Fetching transport and song state."
+                                : "Pick a track from the search results to populate this panel."
                         }
                       />
                       <StatusBanner
-                        title={currentTrack ? "Track selected" : "No track selected"}
+                        title={cueSummary ? "Choreography seeded" : currentTrack ? "Track selected" : "No track selected"}
                         note={
-                          currentTrack
-                            ? `${currentTrack.title} is ready to drive the next choreography pass.`
-                            : "Pick a track from the search results to populate this panel."
+                          cueSummary
+                            ? `${cueSummary.arm_left_cues.length} left-arm cues and ${cueSummary.arm_right_cues.length} right-arm cues are available.`
+                            : currentTrack
+                              ? `${currentTrack.title} is ready to drive the next choreography pass.`
+                              : "Pick a track from the search results to populate this panel."
                         }
                       />
+                      {analysis?.sections.length ? (
+                        <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="hud-label">Detected Sections</p>
+                          <div className="mt-4 grid gap-3">
+                            {analysis.sections.map((section, index) => (
+                              <div key={`${section.label}-${index}`} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-medium capitalize text-white">{section.label}</p>
+                                  <p className="text-xs text-slate-400">
+                                    {formatDuration(section.start_seconds)} - {formatDuration(section.end_seconds)}
+                                  </p>
+                                </div>
+                                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                  <MetricRow label="Energy" value={section.energy_mean.toFixed(2)} progress={section.energy_mean * 100} />
+                                  <MetricRow label="Density" value={section.density_mean.toFixed(2)} progress={section.density_mean * 100} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -492,6 +725,18 @@ function TrackChip({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
       <p className="hud-label mb-1">{label}</p>
       <p className="truncate text-sm font-medium capitalize text-white">{value}</p>
+    </div>
+  );
+}
+
+function BandCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="hud-label">{label}</p>
+        <p className="text-sm font-medium text-white">{Math.round(value * 100)}%</p>
+      </div>
+      <Progress value={value * 100} className="mt-4" />
     </div>
   );
 }

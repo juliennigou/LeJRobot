@@ -20,9 +20,11 @@ The delivery sequence is:
 - `#15` Add spectrogram, rhythm, structure, and track-info analysis tabs
 - `#16` Replace synthetic backend motion data with real audio analysis state
 - `#17` Prepare dual-arm LeRobot adapter and safety envelope
+- `#19` Add GitHub Actions CI for backend, frontend, and smoke validation
+- `#20` Dockerize frontend and backend with docker compose startup
 
 ## Current Status
-- Current PR target: `#13`
+- Current PR target: `#15`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -34,7 +36,12 @@ The delivery sequence is:
   - Home page is music-first
   - Search/select flow exists
   - Minimal local upload/select flow exists without redesigning the page
-  - Analysis tabs are still placeholder-driven
+  - Analysis tabs are now being wired to the real backend analysis payload
+
+## Workflow Rule
+- Each ticket must ship from a feature branch through a pull request.
+- Direct pushes to `main` should be reserved for exceptional cases only.
+- CI must pass before merge: backend compile + smoke test, frontend build, and Docker compose smoke startup.
 
 ## Working Decisions
 - Use Python backend as the source of truth for BPM, beats, sections, and choreography timeline.
