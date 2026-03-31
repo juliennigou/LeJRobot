@@ -330,10 +330,35 @@ class ScheduledMovementPhrase(BaseModel):
     notes: str | None = None
 
 
+class ScheduleStylePreset(BaseModel):
+    style_id: str
+    label: str
+    summary: str
+    density_scale: float = Field(default=1.0, ge=0.5, le=2.0)
+    intensity_scale: float = Field(default=1.0, ge=0.5, le=1.5)
+
+
+class SchedulePhraseOverride(BaseModel):
+    phrase_id: str
+    movement_id: str | None = None
+    preset_id: str | None = None
+    execution_mode: ExecutionMode | None = None
+    target_scope: MovementTargetScope | None = None
+
+
+class ScheduleConfig(BaseModel):
+    style_id: str = "baseline"
+    density_scale: float = Field(default=1.0, ge=0.5, le=2.0)
+    intensity_scale: float = Field(default=1.0, ge=0.5, le=1.5)
+    phrase_overrides: list[SchedulePhraseOverride] = Field(default_factory=list)
+
+
 class ChoreographySchedule(BaseModel):
     track_id: str
     source: TrackSource
     style_id: str = "baseline"
+    config: ScheduleConfig = Field(default_factory=ScheduleConfig)
+    available_styles: list[ScheduleStylePreset] = Field(default_factory=list)
     generated_at: str
     phrase_count: int = Field(ge=0)
     phrases: list[ScheduledMovementPhrase] = Field(default_factory=list)
@@ -455,6 +480,20 @@ class TrackSelection(BaseModel):
 class TrackReference(BaseModel):
     track_id: str
     source: TrackSource
+
+
+class ScheduleConfigUpdate(BaseModel):
+    style_id: str | None = None
+    density_scale: float | None = Field(default=None, ge=0.5, le=2.0)
+    intensity_scale: float | None = Field(default=None, ge=0.5, le=1.5)
+
+
+class SchedulePhraseUpdate(BaseModel):
+    movement_id: str | None = None
+    preset_id: str | None = None
+    execution_mode: ExecutionMode | None = None
+    target_scope: MovementTargetScope | None = None
+    clear_override: bool = False
 
 
 class SongSection(BaseModel):

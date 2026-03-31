@@ -126,10 +126,35 @@ export interface ScheduledMovementPhrase {
   notes?: string | null;
 }
 
+export interface ScheduleStylePreset {
+  style_id: string;
+  label: string;
+  summary: string;
+  density_scale: number;
+  intensity_scale: number;
+}
+
+export interface SchedulePhraseOverride {
+  phrase_id: string;
+  movement_id?: string | null;
+  preset_id?: string | null;
+  execution_mode?: ExecutionMode | null;
+  target_scope?: MovementTargetScope | null;
+}
+
+export interface ScheduleConfig {
+  style_id: string;
+  density_scale: number;
+  intensity_scale: number;
+  phrase_overrides: SchedulePhraseOverride[];
+}
+
 export interface ChoreographySchedule {
   track_id: string;
   source: TrackSource;
   style_id: string;
+  config: ScheduleConfig;
+  available_styles: ScheduleStylePreset[];
   generated_at: string;
   phrase_count: number;
   phrases: ScheduledMovementPhrase[];

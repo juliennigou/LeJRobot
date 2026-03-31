@@ -10,6 +10,8 @@ import {
   moveArmsToNeutral,
   resetArmState,
   runMovement,
+  updateScheduleConfig,
+  updateSchedulePhrase,
   resetEmergencyStop,
   searchTracks,
   setArmConnection,
@@ -32,6 +34,7 @@ import type {
   MovementDefinition,
   MovementTargetScope,
   RobotState,
+  ScheduleConfig,
   TrackSummary,
 } from "@/lib/types";
 import { RhythmPanel } from "@/components/analysis/rhythm-panel";
@@ -61,6 +64,12 @@ type MovementTuning = {
   followThroughGain: number;
   followThroughDamping: number;
   followThroughSettle: number;
+};
+
+type ScheduleDraft = {
+  style_id: string;
+  density_scale: number;
+  intensity_scale: number;
 };
 
 function defaultMovementTuning(movement: MovementDefinition): MovementTuning {
@@ -114,6 +123,8 @@ function App() {
   const [movementBusyAction, setMovementBusyAction] = useState<string | null>(null);
   const [autonomyBusy, setAutonomyBusy] = useState(false);
   const [movementTunings, setMovementTunings] = useState<Record<string, MovementTuning>>({});
+  const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft | null>(null);
+  const [scheduleBusyAction, setScheduleBusyAction] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -223,6 +234,19 @@ function App() {
   const currentTrack = state?.transport.current_track ?? null;
   const currentSchedule = state?.schedule ?? null;
   const movementLibrary = state?.movement_library ?? null;
+
+  useEffect(() => {
+    const config: ScheduleConfig | undefined | null = currentSchedule?.config;
+    if (!config) {
+      setScheduleDraft(null);
+      return;
+    }
+    setScheduleDraft({
+      style_id: config.style_id,
+      density_scale: config.density_scale,
+      intensity_scale: config.intensity_scale,
+    });
+  }, [currentSchedule?.track_id, currentSchedule?.source, currentSchedule?.style_id, currentSchedule?.generated_at]);
 
   useEffect(() => {
     if (!currentTrack) {
@@ -557,6 +581,63 @@ function App() {
     }
   }, []);
 
+  const handleApplyScheduleStyle = useCallback(async () => {
+    if (!currentTrack || !scheduleDraft) {
+      return;
+    }
+    setScheduleBusyAction("apply-style");
+    try {
+      await commitAction(() =>
+        updateScheduleConfig(currentTrack.track_id, currentTrack.source, {
+          style_id: scheduleDraft.style_id,
+          density_scale: scheduleDraft.density_scale,
+          intensity_scale: scheduleDraft.intensity_scale,
+        }),
+      );
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update schedule style");
+    } finally {
+      setScheduleBusyAction(null);
+    }
+  }, [currentTrack, scheduleDraft]);
+
+  const handleResetScheduleStyle = useCallback(() => {
+    if (!currentSchedule) {
+      return;
+    }
+    setScheduleDraft({
+      style_id: currentSchedule.config.style_id,
+      density_scale: currentSchedule.config.density_scale,
+      intensity_scale: currentSchedule.config.intensity_scale,
+    });
+  }, [currentSchedule]);
+
+  const handlePhraseMappingChange = useCallback(
+    async (
+      phraseId: string,
+      payload: {
+        movement_id?: string;
+        preset_id?: string;
+        execution_mode?: ExecutionMode;
+      },
+    ) => {
+      if (!currentTrack) {
+        return;
+      }
+      setScheduleBusyAction(`phrase:${phraseId}`);
+      try {
+        await commitAction(() => updateSchedulePhrase(currentTrack.track_id, currentTrack.source, phraseId, payload));
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to update phrase mapping");
+      } finally {
+        setScheduleBusyAction(null);
+      }
+    },
+    [currentTrack],
+  );
+
   const searchDropdownResults = useMemo(() => {
     const deduped = new Map<string, TrackSummary>();
     [...localTracks, ...searchResults].forEach((track) => {
@@ -727,7 +808,14 @@ function App() {
                 </TabsContent>
 
                 <TabsContent value="structure" className="pt-6">
-                  <StructurePanel analysis={analysis} choreography={cueSummary} schedule={currentSchedule} />
+                  <StructurePanel
+                    analysis={analysis}
+                    choreography={cueSummary}
+                    schedule={currentSchedule}
+                    movementLibrary={movementLibrary}
+                    busyAction={scheduleBusyAction}
+                    onPhraseMappingChange={(phraseId, payload) => void handlePhraseMappingChange(phraseId, payload)}
+                  />
                 </TabsContent>
 
                 <TabsContent value="track-info" className="pt-6">
@@ -740,6 +828,31 @@ function App() {
                     analysisStatus={analysisStatus}
                     analysisLoading={analysisLoading}
                     analysisError={analysisError}
+                    scheduleDraft={scheduleDraft}
+                    scheduleBusy={scheduleBusyAction === "apply-style"}
+                    onScheduleStyleChange={(styleId) =>
+                      setScheduleDraft((current) =>
+                        current
+                          ? { ...current, style_id: styleId }
+                          : { style_id: styleId, density_scale: currentSchedule?.config.density_scale ?? 1, intensity_scale: currentSchedule?.config.intensity_scale ?? 1 },
+                      )
+                    }
+                    onScheduleDensityChange={(value) =>
+                      setScheduleDraft((current) =>
+                        current
+                          ? { ...current, density_scale: value }
+                          : { style_id: currentSchedule?.config.style_id ?? "baseline", density_scale: value, intensity_scale: currentSchedule?.config.intensity_scale ?? 1 },
+                      )
+                    }
+                    onScheduleIntensityChange={(value) =>
+                      setScheduleDraft((current) =>
+                        current
+                          ? { ...current, intensity_scale: value }
+                          : { style_id: currentSchedule?.config.style_id ?? "baseline", density_scale: currentSchedule?.config.density_scale ?? 1, intensity_scale: value },
+                      )
+                    }
+                    onApplyScheduleStyle={() => void handleApplyScheduleStyle()}
+                    onResetScheduleStyle={handleResetScheduleStyle}
                     autonomyBusy={autonomyBusy}
                     onStartAutonomy={() => void handleStartAutonomy()}
                     onStopAutonomy={() => void handleStopAutonomy()}

@@ -24,6 +24,8 @@ from .models import (
     PulseUpdate,
     RobotConfig,
     RobotState,
+    ScheduleConfigUpdate,
+    SchedulePhraseUpdate,
     SceneUpdate,
     ServoUpdate,
     TrackReference,
@@ -340,3 +342,24 @@ def get_schedule(source: TrackSource, track_id: str) -> ChoreographySchedule:
         raise HTTPException(status_code=409, detail=f"Schedule is waiting on analysis: {status.status}")
 
     raise HTTPException(status_code=404, detail="Schedule is not available yet")
+
+
+@app.post("/api/schedule/{source}/{track_id}/config", response_model=RobotState)
+def update_schedule_config(source: TrackSource, track_id: str, payload: ScheduleConfigUpdate) -> RobotState:
+    try:
+        return store.update_schedule_config(TrackReference(track_id=track_id, source=source), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/schedule/{source}/{track_id}/phrases/{phrase_id}", response_model=RobotState)
+def update_schedule_phrase(
+    source: TrackSource,
+    track_id: str,
+    phrase_id: str,
+    payload: SchedulePhraseUpdate,
+) -> RobotState:
+    try:
+        return store.update_schedule_phrase(TrackReference(track_id=track_id, source=source), phrase_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

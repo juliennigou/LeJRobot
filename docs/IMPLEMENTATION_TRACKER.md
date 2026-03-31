@@ -31,11 +31,11 @@ The delivery sequence is:
 - `#33` Run synchronized dual-arm choreography playback on leader + follower [done]
 - `#52` Add follow-through motion layer for live movements [done]
 - `#55` Build choreography scheduler from audio analysis to movement execution [done]
-- `#57` Run autonomous music-driven dual-arm playback from the scheduler
+- `#57` Run autonomous music-driven dual-arm playback from the scheduler [done]
 - `#56` Add song-level dance style controls and phrase mapping UI
 
 ## Current Status
-- Current PR target: `#57`
+- Current PR target: `#56`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -55,6 +55,7 @@ The delivery sequence is:
   - `#52` adds a follow-through layer on top of oscillator motions so distal joints can react with tunable delay, gain, damping, and settling
   - `#55` now adds a beat-aligned scheduler that converts analysis sections and beat grids into timed movement phrases
   - `#57` now adds autonomous playback controls that arm the transport, trigger scheduled phrases on time, and stop cleanly when the schedule completes or is cancelled
+  - `#56` now adds editable song-level schedule style controls plus per-phrase movement remapping on top of the generated scheduler output
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
@@ -70,7 +71,8 @@ The delivery sequence is:
   - `#52` extends movement presets and UI tuning with follow-through controls so fluidity can be tuned before live execution
   - `#45` adds terminal scripts for record/replay/fitting so manual observations can drive later motion refinement outside the UI
   - `#55` lets the app inspect scheduled phrase output for the selected track
-  - `#57` is now wiring autonomous transport control so scheduled phrases execute live on one or both arms from the Track Info page
+  - `#57` now runs scheduled phrases live on one or both arms from the Track Info page
+  - `#56` is now adding song-level style controls and phrase remapping directly inside the analysis views
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.
@@ -86,8 +88,7 @@ The delivery sequence is:
 - Persist computed audio analysis under `.data/analysis-cache/json/` and remote source audio under `.data/analysis-cache/audio/`.
 
 ## PR Order
-1. `#57` Autonomous dual-arm playback from the scheduler
-2. `#56` Song-level style controls and phrase mapping UI
+1. `#56` Song-level style controls and phrase mapping UI
 
 ## Update Rule
 After each merged PR:
