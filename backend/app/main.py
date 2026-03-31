@@ -59,6 +59,12 @@ def get_config() -> RobotConfig:
 
 @app.get("/api/state", response_model=RobotState)
 def get_state() -> RobotState:
+    current_track = store.current_track()
+    if current_track is not None:
+        reference = TrackReference(track_id=current_track.track_id, source=current_track.source)
+        cached = analysis_service.get_cached_analysis(reference)
+        if cached is not None:
+            store.store_analysis(cached)
     return store.snapshot()
 
 
