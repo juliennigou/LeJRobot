@@ -239,11 +239,36 @@ class MovementDefinition(BaseModel):
     duration_seconds: float = Field(gt=0.0)
     focus_joints: list[str] = Field(default_factory=list)
     recommended_arm: ArmType | None = None
+    controller: str = "oscillator"
+    default_preset_id: str | None = None
+    neutral_pose: dict[str, float] = Field(default_factory=dict)
+    presets: list["MovementPreset"] = Field(default_factory=list)
+
+
+class MovementJointProfile(BaseModel):
+    joint_name: str
+    base_angle: float = Field(ge=-180.0, le=180.0)
+    amplitude: float = Field(ge=0.0, le=90.0)
+    phase_delay_radians: float = Field(ge=0.0, le=6.5)
+    bias: float = Field(default=0.0, ge=-90.0, le=90.0)
+
+
+class MovementPreset(BaseModel):
+    preset_id: str
+    label: str
+    summary: str
+    frequency_hz: float = Field(gt=0.1, le=4.0)
+    cycles: int = Field(ge=1, le=32)
+    amplitude_scale: float = Field(default=1.0, ge=0.2, le=2.5)
+    softness: float = Field(default=0.7, ge=0.0, le=1.0)
+    asymmetry: float = Field(default=0.0, ge=0.0, le=1.0)
+    joint_profiles: list[MovementJointProfile] = Field(default_factory=list)
 
 
 class MovementRunState(BaseModel):
     status: MovementStatus = MovementStatus.IDLE
     movement_id: str | None = None
+    preset_id: str | None = None
     arm_id: str | None = None
     arm_type: ArmType | None = None
     started_at: str | None = None
@@ -332,6 +357,13 @@ class ExecutionModeUpdate(BaseModel):
 class MovementRunRequest(BaseModel):
     movement_id: str
     arm_id: str
+    preset_id: str | None = None
+    frequency_hz: float | None = Field(default=None, gt=0.1, le=4.0)
+    cycles: int | None = Field(default=None, ge=1, le=32)
+    amplitude_scale: float | None = Field(default=None, ge=0.2, le=2.5)
+    softness: float | None = Field(default=None, ge=0.0, le=1.0)
+    asymmetry: float | None = Field(default=None, ge=0.0, le=1.0)
+    debug: bool = False
 
 
 class TrackSearchResponse(BaseModel):

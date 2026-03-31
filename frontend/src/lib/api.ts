@@ -95,10 +95,21 @@ export function fetchMovementLibrary() {
   return request<MovementLibraryState>("/api/movements");
 }
 
-export function runMovement(armId: string, movementId: string) {
+export function runMovement(
+  armId: string,
+  movementId: string,
+  options?: {
+    preset_id?: string;
+    frequency_hz?: number;
+    cycles?: number;
+    amplitude_scale?: number;
+    softness?: number;
+    asymmetry?: number;
+  },
+) {
   return request<MovementLibraryState>("/api/movements/run", {
     method: "POST",
-    body: JSON.stringify({ arm_id: armId, movement_id: movementId }),
+    body: JSON.stringify({ arm_id: armId, movement_id: movementId, ...options }),
   });
 }
 

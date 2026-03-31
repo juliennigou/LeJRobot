@@ -14,8 +14,9 @@ from fastapi.testclient import TestClient
 from backend.app import main as main_module
 from backend.app.analysis import AudioAnalysisCache, AudioAnalysisService
 from backend.app.arms import DEFAULT_EXPECTED_JOINT_COUNT, ArmRuntime
+from backend.app.movement_library import sample_motion
 from backend.app.music import JamendoTrackProvider, LocalTrackLibrary
-from backend.app.models import ArmVerificationState, ArmVerificationStatus, RobotConfig, ServoState
+from backend.app.models import ArmVerificationState, ArmVerificationStatus, MovementRunRequest, RobotConfig, ServoState
 from backend.app.state import RobotStateStore
 
 
@@ -304,15 +305,19 @@ class ApiSmokeTest(unittest.TestCase):
         movements = self.client.get("/api/movements")
         self.assertEqual(movements.status_code, 200)
         movement_payload = movements.json()
-        self.assertTrue(any(item["movement_id"] == "wave" for item in movement_payload["movements"]))
+        wave_definition = next(item for item in movement_payload["movements"] if item["movement_id"] == "wave")
         self.assertEqual(movement_payload["active"]["status"], "idle")
+        self.assertEqual(wave_definition["controller"], "oscillator")
+        self.assertEqual(wave_definition["default_preset_id"], "normal")
+        self.assertEqual(len(wave_definition["presets"]), 3)
 
         run_wave = self.client.post(
             "/api/movements/run",
-            json={"movement_id": "wave", "arm_id": "test_follower"},
+            json={"movement_id": "wave", "arm_id": "test_follower", "preset_id": "normal"},
         )
         self.assertEqual(run_wave.status_code, 200)
         self.assertEqual(run_wave.json()["active"]["status"], "running")
+        self.assertEqual(run_wave.json()["active"]["preset_id"], "normal")
 
         completed = None
         for _ in range(140):
@@ -327,11 +332,12 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertIsNotNone(completed)
         self.assertEqual(completed["movement_id"], "wave")
         self.assertEqual(completed["arm_id"], "test_follower")
+        self.assertEqual(completed["preset_id"], "normal")
         self.assertGreaterEqual(completed["progress"], 1.0)
 
         rerun_wave = self.client.post(
             "/api/movements/run",
-            json={"movement_id": "wave", "arm_id": "test_follower"},
+            json={"movement_id": "wave", "arm_id": "test_follower", "preset_id": "subtle"},
         )
         self.assertEqual(rerun_wave.status_code, 200)
         stop_wave = self.client.post("/api/movements/stop")
@@ -376,6 +382,25 @@ class ApiSmokeTest(unittest.TestCase):
         buffer = io.BytesIO()
         sf.write(buffer, signal, sample_rate, format="WAV")
         return buffer.getvalue()
+
+    def test_wave_motion_generator_travels_from_shoulder_to_wrist(self) -> None:
+        samples = sample_motion(
+            MovementRunRequest(movement_id="wave", arm_id="test_follower", preset_id="normal"),
+            sample_hz=80.0,
+        )
+        self.assertGreater(len(samples), 100)
+
+        shoulder_values = [frame["shoulder_pan"] for frame in samples]
+        elbow_values = [frame["elbow_flex"] for frame in samples]
+        wrist_values = [frame["wrist_roll"] for frame in samples]
+
+        shoulder_peak_index = max(range(len(shoulder_values)), key=lambda index: shoulder_values[index])
+        elbow_peak_index = max(range(len(elbow_values)), key=lambda index: elbow_values[index])
+        wrist_peak_index = max(range(len(wrist_values)), key=lambda index: wrist_values[index])
+
+        self.assertLess(shoulder_peak_index, elbow_peak_index)
+        self.assertLess(elbow_peak_index, wrist_peak_index)
+        self.assertGreater(max(wrist_values) - min(wrist_values), max(shoulder_values) - min(shoulder_values))
 
 
 if __name__ == "__main__":

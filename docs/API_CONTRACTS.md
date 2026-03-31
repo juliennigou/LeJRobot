@@ -161,12 +161,18 @@ These contracts started ahead of the implementation. The real backend analysis p
 ```json
 {
   "movement_id": "wave",
-  "arm_id": "thejn_follower_arm"
+  "arm_id": "thejn_follower_arm",
+  "preset_id": "normal",
+  "frequency_hz": 0.9,
+  "cycles": 4,
+  "amplitude_scale": 1.0,
+  "softness": 0.72
 }
 ```
 - Response: `MovementLibraryState`
 - Starts one bounded live movement on the selected arm
 - Requires the selected arm to be connected, torque-enabled, not in dry run, and not in emergency stop
+- `preset_id`, `frequency_hz`, `cycles`, `amplitude_scale`, `softness`, and `asymmetry` are optional runtime overrides for oscillator-based movements such as `wave`
 
 ### `POST /api/movements/stop`
 - Response: `MovementLibraryState`
@@ -245,10 +251,33 @@ These contracts started ahead of the implementation. The real backend analysis p
 - `duration_seconds`
 - `focus_joints`
 - `recommended_arm`
+- `controller`
+- `default_preset_id`
+- `neutral_pose`
+- `presets`
+
+### `MovementPreset`
+- `preset_id`
+- `label`
+- `summary`
+- `frequency_hz`
+- `cycles`
+- `amplitude_scale`
+- `softness`
+- `asymmetry`
+- `joint_profiles`
+
+### `MovementJointProfile`
+- `joint_name`
+- `base_angle`
+- `amplitude`
+- `phase_delay_radians`
+- `bias`
 
 ### `MovementRunState`
 - `status`
 - `movement_id`
+- `preset_id`
 - `arm_id`
 - `arm_type`
 - `started_at`

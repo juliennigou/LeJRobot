@@ -110,11 +110,19 @@ The backend now exposes a dry-run dual-arm execution surface for your SO-101 lea
 - `POST /api/arms/emergency-stop` holds the current live pose and disables torque immediately on connected arms
 - `POST /api/arms/emergency-reset` clears emergency-stop state so torque can be re-enabled explicitly
 - `POST /api/arms/neutral` moves connected arms toward the neutral pose through the same live step-limited safety envelope used for future motion writes
-- `GET /api/movements` returns the manual movement library and the currently active movement runtime
-- `POST /api/movements/run` starts a bounded live movement such as `wave` on one selected arm
+- `GET /api/movements` returns the manual movement library, oscillator presets, and the currently active movement runtime
+- `POST /api/movements/run` starts a bounded live movement such as `wave` on one selected arm, with optional runtime overrides for preset, tempo, cycles, amplitude, softness, and asymmetry
 - `POST /api/movements/stop` stops the active manual movement
 
-This is now the first real single-arm motion layer. It still does not execute music-driven choreography yet, but it opens real SO-101 telemetry sessions, exposes live safety controls, and can run a bounded library movement such as `wave` on one selected arm.
+This is now the first real single-arm motion layer. It still does not execute music-driven choreography yet, but it opens real SO-101 telemetry sessions, exposes live safety controls, and can run a bounded library movement such as `wave` on one selected arm. The `wave` primitive is no longer a hardcoded pose sequence: it is generated from one global oscillator, a prepared neutral pose, progressive shoulder-to-wrist phase delays, and a quintic ease-in/ease-out envelope.
+
+Offline wave demo:
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/demo_wave_motion.py --preset normal --format json
+```
 
 Install or refresh backend dependencies after pulling:
 
