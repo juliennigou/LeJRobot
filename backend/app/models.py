@@ -309,6 +309,29 @@ class MovementLibraryState(BaseModel):
     active: MovementRunState = Field(default_factory=MovementRunState)
 
 
+class ScheduledMovementPhrase(BaseModel):
+    phrase_id: str
+    movement_id: str
+    preset_id: str
+    start_seconds: float = Field(ge=0.0)
+    end_seconds: float = Field(ge=0.0)
+    section_label: SectionLabel = SectionLabel.UNKNOWN
+    execution_mode: ExecutionMode = ExecutionMode.MIRROR
+    target_scope: MovementTargetScope = MovementTargetScope.BOTH
+    intensity: float = Field(default=0.5, ge=0.0, le=1.0)
+    density: float = Field(default=0.5, ge=0.0, le=1.0)
+    notes: str | None = None
+
+
+class ChoreographySchedule(BaseModel):
+    track_id: str
+    source: TrackSource
+    style_id: str = "baseline"
+    generated_at: str
+    phrase_count: int = Field(ge=0)
+    phrases: list[ScheduledMovementPhrase] = Field(default_factory=list)
+
+
 class RobotState(BaseModel):
     connected: bool
     status: str
@@ -326,6 +349,7 @@ class RobotState(BaseModel):
     servos: list[ServoState]
     dual_arm: DualArmState
     movement_library: MovementLibraryState
+    schedule: ChoreographySchedule | None = None
 
 
 class ModeUpdate(BaseModel):

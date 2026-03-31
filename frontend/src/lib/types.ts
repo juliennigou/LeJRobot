@@ -111,6 +111,29 @@ export interface ChoreographyTimeline {
   arm_right_cues: MotionCue[];
 }
 
+export interface ScheduledMovementPhrase {
+  phrase_id: string;
+  movement_id: string;
+  preset_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  section_label: SectionLabel;
+  execution_mode: ExecutionMode;
+  target_scope: MovementTargetScope;
+  intensity: number;
+  density: number;
+  notes?: string | null;
+}
+
+export interface ChoreographySchedule {
+  track_id: string;
+  source: TrackSource;
+  style_id: string;
+  generated_at: string;
+  phrase_count: number;
+  phrases: ScheduledMovementPhrase[];
+}
+
 export interface AudioAnalysis {
   track_id: string;
   source: TrackSource;
@@ -329,4 +352,5 @@ export interface RobotState {
   servos: ServoState[];
   dual_arm: DualArmState;
   movement_library: MovementLibraryState;
+  schedule?: ChoreographySchedule | null;
 }

@@ -2,6 +2,7 @@ import type {
   AnalysisStartResponse,
   AnalysisStatusResponse,
   AudioAnalysis,
+  ChoreographySchedule,
   ChoreographyTimeline,
   DanceMode,
   DualArmState,
@@ -225,4 +226,8 @@ export function fetchAnalysis(trackId: string, source: TrackSource) {
 
 export function fetchChoreography(trackId: string, source: TrackSource) {
   return request<ChoreographyTimeline>(`/api/choreography/${source}/${trackId}`);
+}
+
+export function fetchSchedule(trackId: string, source: TrackSource) {
+  return request<ChoreographySchedule>(`/api/schedule/${source}/${trackId}`);
 }

@@ -1,4 +1,10 @@
-import type { AnalysisStatusResponse, AudioAnalysis, ChoreographyTimeline, TrackSummary } from "@/lib/types";
+import type {
+  AnalysisStatusResponse,
+  AudioAnalysis,
+  ChoreographySchedule,
+  ChoreographyTimeline,
+  TrackSummary,
+} from "@/lib/types";
 
 import { formatDate, formatDuration } from "@/lib/analysis-view";
 
@@ -6,6 +12,7 @@ export function TrackInfoPanel({
   track,
   analysis,
   choreography,
+  schedule,
   analysisStatus,
   analysisLoading,
   analysisError,
@@ -13,6 +20,7 @@ export function TrackInfoPanel({
   track: TrackSummary | null;
   analysis: AudioAnalysis | null;
   choreography: ChoreographyTimeline | null;
+  schedule: ChoreographySchedule | null;
   analysisStatus: AnalysisStatusResponse | null;
   analysisLoading: boolean;
   analysisError: string | null;
@@ -54,10 +62,19 @@ export function TrackInfoPanel({
                   : "Choreography cues appear after the analysis payload is loaded."
             }
           />
-          <div className="grid gap-4 sm:grid-cols-3">
+          <Banner
+            title={schedule ? "Scheduler ready" : "Scheduler pending"}
+            note={
+              schedule
+                ? `${schedule.phrase_count} phrase windows are mapped from the current analysis for future autonomous playback.`
+                : "The phrase scheduler appears after analysis is available for the selected track."
+            }
+          />
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <InfoTile label="Sample Rate" value={analysis ? `${analysis.sample_rate} Hz` : "--"} />
             <InfoTile label="Waveform Buckets" value={analysis ? `${analysis.waveform.bucket_count}` : "--"} />
             <InfoTile label="Tempo Confidence" value={analysis ? `${Math.round(analysis.tempo_confidence * 100)}%` : "--"} />
+            <InfoTile label="Phrases" value={schedule ? `${schedule.phrase_count}` : "--"} />
           </div>
         </div>
       </div>

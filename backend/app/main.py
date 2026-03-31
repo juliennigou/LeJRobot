@@ -14,6 +14,7 @@ from .models import (
     ArmConnectionUpdate,
     ArmSafetyUpdate,
     AudioAnalysis,
+    ChoreographySchedule,
     ChoreographyTimeline,
     DualArmState,
     ExecutionModeUpdate,
@@ -305,3 +306,24 @@ def get_choreography(source: TrackSource, track_id: str) -> ChoreographyTimeline
         raise HTTPException(status_code=409, detail=f"Choreography is waiting on analysis: {status.status}")
 
     raise HTTPException(status_code=404, detail="Choreography is not available yet")
+
+
+@app.get("/api/schedule/{source}/{track_id}", response_model=ChoreographySchedule)
+def get_schedule(source: TrackSource, track_id: str) -> ChoreographySchedule:
+    reference = TrackReference(track_id=track_id, source=source)
+    try:
+        cached = analysis_service.get_cached_analysis(reference)
+        if cached is not None:
+            store.store_analysis(cached)
+        schedule = store.get_schedule(reference)
+        status = store.get_analysis_status(reference)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if schedule is not None:
+        return schedule
+
+    if status.status in {AnalysisStatus.QUEUED, AnalysisStatus.PROCESSING}:
+        raise HTTPException(status_code=409, detail=f"Schedule is waiting on analysis: {status.status}")
+
+    raise HTTPException(status_code=404, detail="Schedule is not available yet")
