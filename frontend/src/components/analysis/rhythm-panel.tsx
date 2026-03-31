@@ -1,8 +1,59 @@
-import { Activity, AudioLines, Disc3 } from "lucide-react";
+import { Activity, Disc3, Sparkles, Waves } from "lucide-react";
 
-import type { AudioAnalysis, ChoreographyTimeline, SongSection } from "@/lib/types";
+import type { AudioAnalysis, ChoreographyTimeline } from "@/lib/types";
+import { average, beatDensity, currentSection, downsample, sampleSeries } from "@/lib/analysis-view";
 import { Progress } from "@/components/ui/progress";
-import { average, beatDensity, currentSection, sampleSeries } from "@/lib/analysis-view";
+
+function MiniBars({ values }: { values: number[] }) {
+  const bars = downsample(values, 36);
+  const max = Math.max(...bars, 0.0001);
+  return (
+    <div className="flex h-20 items-end gap-1 rounded-[22px] border border-white/10 bg-slate-950/80 px-3 py-3">
+      {bars.map((value, index) => (
+        <div
+          key={`${index}-${value}`}
+          className="flex-1 rounded-full bg-gradient-to-t from-blue-600/70 via-sky-400 to-white"
+          style={{ height: `${Math.max(10, (value / max) * 100)}%`, opacity: 0.35 + value / max / 2 }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function Meter({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-slate-300">{label}</span>
+        <span className="text-sm font-medium text-white">{Math.round(value * 100)}%</span>
+      </div>
+      <Progress className="mt-4" value={Math.max(0, Math.min(100, value * 100))} />
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  note,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  icon: typeof Disc3;
+}) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="hud-label">{label}</span>
+        <Icon className="h-4 w-4 text-sky-300" />
+      </div>
+      <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+      <p className="mt-1 text-sm text-slate-400">{note}</p>
+    </div>
+  );
+}
 
 export function RhythmPanel({
   analysis,
@@ -18,109 +69,91 @@ export function RhythmPanel({
   }
 
   const frameIndex = Math.floor(currentTime * analysis.energy.frame_hz);
-  const current = currentSection(analysis.sections, currentTime);
   const low = sampleSeries(analysis.bands.low, frameIndex);
   const mid = sampleSeries(analysis.bands.mid, frameIndex);
   const high = sampleSeries(analysis.bands.high, frameIndex);
   const rms = sampleSeries(analysis.energy.rms, frameIndex);
   const onset = sampleSeries(analysis.energy.onset_strength, frameIndex);
+  const section = currentSection(analysis.sections, currentTime);
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-      <div className="grid gap-4">
-        <MetricCard label="Detected BPM" value={analysis.bpm.toFixed(2)} progress={Math.min(100, (analysis.bpm / 180) * 100)} icon={Disc3} />
-        <MetricCard label="Tempo Confidence" value={`${Math.round(analysis.tempo_confidence * 100)}%`} progress={analysis.tempo_confidence * 100} icon={Activity} />
-        <MetricCard label="Beat Density" value={`${beatDensity(analysis).toFixed(2)} / sec`} progress={Math.min(100, beatDensity(analysis) * 25)} icon={AudioLines} />
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Metric
+          label="Tempo"
+          value={analysis.bpm.toFixed(1)}
+          note={`${Math.round(analysis.tempo_confidence * 100)}% confidence`}
+          icon={Disc3}
+        />
+        <Metric
+          label="Beat Density"
+          value={`${beatDensity(analysis).toFixed(2)}/s`}
+          note={`${analysis.beats.length} beats across the song`}
+          icon={Activity}
+        />
+        <Metric
+          label="Downbeats"
+          value={`${analysis.downbeats.length}`}
+          note="Bar-level anchors from the beat grid"
+          icon={Waves}
+        />
+        <Metric
+          label="Cue Stream"
+          value={choreography ? `${choreography.global_cues.length}` : "--"}
+          note={choreography ? "Global motion events attached to the rhythm grid" : "No choreography loaded yet"}
+          icon={Sparkles}
+        />
       </div>
 
-      <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
-        <p className="hud-label">Live Envelope Readout</p>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <EnvelopeCard label="RMS Energy" value={rms} />
-          <EnvelopeCard label="Onset Strength" value={onset} />
-          <EnvelopeCard label="Low Band" value={low} />
-          <EnvelopeCard label="Mid Band" value={mid} />
-          <EnvelopeCard label="High Band" value={high} />
-          <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
-            <p className="hud-label">Current Section</p>
-            <p className="mt-3 text-lg font-semibold capitalize text-white">{current?.label ?? "unknown"}</p>
-            <p className="mt-2 text-sm text-slate-400">
-              {current ? `${current.start_seconds.toFixed(1)}s - ${current.end_seconds.toFixed(1)}s` : "No section boundary"}
-            </p>
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="hud-label">Rhythm Energy</p>
+              <p className="mt-1 text-sm text-slate-400">Energy and onset curves condensed into a clean beat-facing readout.</p>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">
+              {section ? `${section.label} section` : "no section"}
+            </div>
           </div>
-        </div>
 
-        <div className="mt-6 rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-          <p className="hud-label">Beat Timeline</p>
-          <div className="mt-4 flex h-24 items-end gap-2 overflow-hidden rounded-[20px] border border-white/10 bg-slate-950/80 px-3 py-3">
-            {analysis.beats.slice(0, 64).map((beat, index) => {
-              const nextBeat = analysis.beats[index + 1] ?? beat + 0.5;
-              const span = Math.max(0.15, nextBeat - beat);
-              const height = Math.min(100, 28 + span * 80 + (index % 4 === 0 ? 18 : 0));
-              return <div key={`${beat}-${index}`} className="flex-1 rounded-full bg-gradient-to-t from-sky-600 via-blue-300 to-white/90" style={{ height: `${height}%` }} />;
-            })}
+          <div className="mt-5 space-y-4">
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-slate-300">Onset activity</span>
+                <span className="text-slate-400">{Math.round(average(analysis.energy.onset_strength) * 100)}% average</span>
+              </div>
+              <MiniBars values={analysis.energy.onset_strength} />
+            </div>
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-slate-300">RMS loudness</span>
+                <span className="text-slate-400">{Math.round(average(analysis.energy.rms) * 100)}% average</span>
+              </div>
+              <MiniBars values={analysis.energy.rms} />
+            </div>
           </div>
-          <p className="mt-3 text-sm text-slate-400">
-            {choreography
-              ? `${choreography.global_cues.length} global cues and ${choreography.arm_left_cues.length + choreography.arm_right_cues.length} arm cues are already attached to this rhythm grid.`
-              : "Choreography cues appear after the analysis payload is loaded."}
-          </p>
-        </div>
+        </section>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          <SummaryTile label="Mean RMS" value={average(analysis.energy.rms).toFixed(2)} />
-          <SummaryTile label="Downbeats" value={`${analysis.downbeats.length}`} />
-          <SummaryTile label="Sections" value={`${analysis.sections.length}`} />
-        </div>
+        <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
+          <div>
+            <p className="hud-label">Band Snapshot</p>
+            <p className="mt-1 text-sm text-slate-400">Live values at the current playhead without overemphasizing them.</p>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            <Meter label="Low band" value={low} />
+            <Meter label="Mid band" value={mid} />
+            <Meter label="High band" value={high} />
+            <Meter label="RMS" value={rms} />
+            <Meter label="Onset" value={onset} />
+          </div>
+        </section>
       </div>
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  progress,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  progress: number;
-  icon: typeof Disc3;
-}) {
-  return (
-    <div className="rounded-[24px] border border-white/10 bg-black/25 p-5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="hud-label">{label}</p>
-        <Icon className="h-4 w-4 text-primary" />
-      </div>
-      <p className="mt-4 text-3xl font-semibold text-white">{value}</p>
-      <Progress className="mt-4" value={progress} />
-    </div>
-  );
-}
-
-function EnvelopeCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-slate-300">{label}</span>
-        <span className="text-sm font-medium text-white">{Math.round(value * 100)}%</span>
-      </div>
-      <Progress className="mt-4" value={value * 100} />
-    </div>
-  );
-}
-
-function SummaryTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
-      <p className="hud-label">{label}</p>
-      <p className="mt-3 text-xl font-semibold text-white">{value}</p>
     </div>
   );
 }
 
 function EmptyPanel({ text }: { text: string }) {
-  return <div className="rounded-[30px] border border-white/10 bg-black/25 p-6 text-sm text-slate-400">{text}</div>;
+  return <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 text-sm text-slate-400">{text}</div>;
 }
