@@ -431,6 +431,27 @@ function App() {
     }
   }, []);
 
+  const handleSetAllArmConnections = useCallback(
+    async (connected: boolean) => {
+      const armIds = state?.dual_arm.arms.map((arm) => arm.arm_id) ?? [];
+      if (armIds.length === 0) {
+        return;
+      }
+
+      setHardwareBusyArmId(connected ? "all-connect" : "all-disconnect");
+      try {
+        await Promise.all(armIds.map((armId) => setArmConnection(armId, connected)));
+        await refreshState();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to update arm connections");
+      } finally {
+        setHardwareBusyArmId(null);
+      }
+    },
+    [state?.dual_arm.arms],
+  );
+
   const handleUpdateArmSafety = useCallback(
     async (
       armId: string,
@@ -896,6 +917,8 @@ function App() {
             busyAction={hardwareActionBusy}
             onVerify={() => void handleVerifyHardware()}
             onToggleConnection={(armId, connected) => void handleToggleArmConnection(armId, connected)}
+            onConnectAll={() => void handleSetAllArmConnections(true)}
+            onDisconnectAll={() => void handleSetAllArmConnections(false)}
             onToggleDryRun={(armId, dryRun) =>
               void handleUpdateArmSafety(armId, { dry_run: dryRun }, `${armId}:dry-run`)
             }

@@ -1,10 +1,11 @@
 import {
-  AlertTriangle,
-  Cable,
-  CheckCircle2,
-  Cpu,
-  Gauge,
-  RefreshCw,
+    AlertTriangle,
+    Cable,
+    CheckCircle2,
+    Circle,
+    Cpu,
+    Gauge,
+    RefreshCw,
   Shield,
   Target,
   Thermometer,
@@ -56,6 +57,30 @@ function servoRuntimeMap(servos: ServoState[]) {
   return new Map(servos.map((servo) => [servo.id, servo]));
 }
 
+function armStatusTone(arm: ArmAdapterState) {
+  if (arm.connected && arm.telemetry_live) {
+    return {
+      label: "Live",
+      iconClass: "fill-emerald-400 text-emerald-400",
+      textClass: "text-emerald-200",
+    };
+  }
+
+  if (arm.verification.status === "ready") {
+    return {
+      label: "Ready",
+      iconClass: "fill-amber-400 text-amber-400",
+      textClass: "text-amber-200",
+    };
+  }
+
+  return {
+    label: "Offline",
+    iconClass: "fill-red-400 text-red-400",
+    textClass: "text-red-200",
+  };
+}
+
 export function HardwareStatusDashboard({
   state,
   loading,
@@ -64,6 +89,8 @@ export function HardwareStatusDashboard({
   busyAction,
   onVerify,
   onToggleConnection,
+  onConnectAll,
+  onDisconnectAll,
   onToggleDryRun,
   onToggleTorque,
   onResetArmEmergencyStop,
@@ -79,6 +106,8 @@ export function HardwareStatusDashboard({
   busyAction: string | null;
   onVerify: () => void;
   onToggleConnection: (armId: string, connected: boolean) => void;
+  onConnectAll: () => void;
+  onDisconnectAll: () => void;
   onToggleDryRun: (armId: string, dryRun: boolean) => void;
   onToggleTorque: (armId: string, enabled: boolean) => void;
   onResetArmEmergencyStop: (armId: string) => void;
@@ -91,6 +120,8 @@ export function HardwareStatusDashboard({
   const execution = state?.dual_arm.execution;
   const connectedCount = arms.filter((arm) => arm.connected).length;
   const readyCount = arms.filter((arm) => arm.verification.status === "ready").length;
+  const allConnected = arms.length > 0 && arms.every((arm) => arm.connected);
+  const anyConnected = arms.some((arm) => arm.connected);
   const allTelemetry = arms.flatMap((arm) => arm.telemetry);
   const averageLoad =
     allTelemetry.length > 0 ? allTelemetry.reduce((sum, servo) => sum + servo.load_pct, 0) / allTelemetry.length : 0;
@@ -116,6 +147,12 @@ export function HardwareStatusDashboard({
             <Button variant="secondary" onClick={onVerify} disabled={verifying}>
               <RefreshCw className={`mr-2 h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
               {verifying ? "Checking Hardware..." : "Run Verification"}
+            </Button>
+            <Button variant="ghost" onClick={onConnectAll} disabled={busyArmId !== null || busyAction !== null || allConnected}>
+              Connect Both
+            </Button>
+            <Button variant="ghost" onClick={onDisconnectAll} disabled={busyArmId !== null || busyAction !== null || !anyConnected}>
+              Disconnect Both
             </Button>
             <Button variant="ghost" onClick={onNeutralAll} disabled={busyAction !== null}>
               {busyAction === "neutral" ? "Moving..." : "Neutral All"}
@@ -174,21 +211,25 @@ export function HardwareStatusDashboard({
         </Card>
 
         <div className="grid gap-6">
-          {arms.map((arm) => {
-            const tone = verificationTone(arm.verification.status);
-            const ToneIcon = tone.icon;
+	          {arms.map((arm) => {
+	            const tone = verificationTone(arm.verification.status);
+	            const ToneIcon = tone.icon;
+              const status = armStatusTone(arm);
 
-            return (
-              <Card key={arm.arm_id} className="border-white/10 bg-white/[0.04]">
+	            return (
+	              <Card key={arm.arm_id} className="border-white/10 bg-white/[0.04]">
                 <CardHeader>
                   <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Badge>{titleize(arm.arm_type)}</Badge>
-                        <Badge variant="muted">{titleize(arm.channel)} Channel</Badge>
-                        <Badge className={tone.badgeClass}>{titleize(arm.verification.status)}</Badge>
-                        <Badge variant="muted">{arm.connected ? "Telemetry Connected" : "Telemetry Offline"}</Badge>
-                      </div>
+	                    <div>
+	                      <div className="flex flex-wrap items-center gap-3">
+                          <span className={`inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium ${status.textClass}`}>
+                            <Circle className={`h-2.5 w-2.5 ${status.iconClass}`} />
+                            {status.label}
+                          </span>
+	                        <Badge>{titleize(arm.arm_type)}</Badge>
+	                        <Badge variant="muted">{titleize(arm.channel)} Channel</Badge>
+	                        <Badge className={tone.badgeClass}>{titleize(arm.verification.status)}</Badge>
+	                      </div>
                       <CardTitle className="mt-4 text-2xl text-white">{arm.arm_id}</CardTitle>
                       <CardDescription className="text-slate-300">
                         {arm.verification.message ?? arm.notes ?? "No verification message yet."}
