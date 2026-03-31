@@ -15,7 +15,7 @@ The delivery sequence is:
 - `#10` Define audio analysis models and API contracts for dual-arm choreography [done]
 - `#11` Add local audio upload and analyzable track source pipeline [done]
 - `#12` Implement backend audio analysis pipeline with librosa and caching [done]
-- `#13` Generate dual-arm choreography timelines from analysis data
+- `#13` Generate dual-arm choreography timelines from analysis data [done]
 - `#14` Build waveform-first music console on the frontend
 - `#15` Add spectrogram, rhythm, structure, and track-info analysis tabs
 - `#16` Replace synthetic backend motion data with real audio analysis state
@@ -24,19 +24,19 @@ The delivery sequence is:
 - `#20` Dockerize frontend and backend with docker compose startup
 
 ## Current Status
-- Current PR target: `#13`
+- Current PR target: `#16`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
   - Real audio analysis is available behind `/api/analysis/*` for local uploads and Jamendo-backed tracks
   - Analysis results are cached on disk under `.data/analysis-cache/`
-  - Dual-arm choreography output is being refined to become section-aware instead of mostly beat-mirrored
-  - Spectrum and dance state are still synthetic
+  - Dual-arm choreography output is section-aware and exposes left/right arm cue channels
+  - `/api/state` now derives transport BPM, energy, spectrum bars, and autonomous servo modulation from cached analysis when it exists
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
   - Minimal local upload/select flow exists without redesigning the page
-  - Analysis tabs are now being wired to the real backend analysis payload
+  - Analysis tabs are wired to the real backend analysis payload
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.
