@@ -17,6 +17,14 @@ These contracts are intentionally ahead of the implementation. The schema is sta
 ### `GET /api/tracks/current`
 - Response: `TrackSummary | null`
 
+### `POST /api/tracks/upload`
+- Multipart body:
+  - `file: UploadFile`
+- Response: `TrackSummary`
+- Notes:
+  - Local uploads are normalized into the same `TrackSummary` shape used by search results
+  - Uploaded tracks are expected to use `source: "local"`
+
 ### `POST /api/tracks/select`
 - Body:
 ```json
@@ -121,4 +129,5 @@ These contracts are intentionally ahead of the implementation. The schema is sta
 ## Compatibility Notes
 - `motion_profile` remains present for compatibility with the existing UI.
 - `analysis_status` is now part of `TrackSummary`.
+- Local uploads should be selectable through the same UI card flow as Jamendo tracks.
 - Real analysis output is intentionally not faked by these endpoints. Follow-up tickets will populate `AudioAnalysis` and `ChoreographyTimeline`.

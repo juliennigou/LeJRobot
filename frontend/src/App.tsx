@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import {
   Activity,
   BarChart3,
@@ -9,9 +9,10 @@ import {
   Play,
   Search,
   Sparkles,
+  Upload,
   Waves,
 } from "lucide-react";
-import { fetchState, searchTracks, selectTrack, setTransport } from "@/lib/api";
+import { fetchState, searchTracks, selectTrack, setTransport, uploadTrack } from "@/lib/api";
 import type { RobotState, TrackSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,8 +37,13 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("electro swing");
   const [searchResults, setSearchResults] = useState<TrackSummary[]>([]);
+  const [localTracks, setLocalTracks] = useState<TrackSummary[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
     try {
@@ -76,6 +82,45 @@ function App() {
     }
   };
 
+  const loadLocalTracks = async () => {
+    try {
+      const response = await searchTracks("", "local", 8);
+      startTransition(() => {
+        setLocalTracks(response.results);
+      });
+      setUploadError(null);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Unable to load local tracks");
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedUploadFile) {
+      setUploadError("Choose an audio file to upload.");
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+
+    try {
+      const track = await uploadTrack(selectedUploadFile);
+      startTransition(() => {
+        setLocalTracks((current) => {
+          const remaining = current.filter((item) => item.track_id !== track.track_id);
+          return [track, ...remaining];
+        });
+      });
+      await commitAction(() => selectTrack(track, true));
+      uploadInputRef.current?.value && (uploadInputRef.current.value = "");
+      setSelectedUploadFile(null);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const commitAction = async (action: () => Promise<RobotState>) => {
     try {
       const next = await action();
@@ -90,7 +135,7 @@ function App() {
 
   useEffect(() => {
     const boot = async () => {
-      await Promise.all([refreshState(), runSearch(searchQuery)]);
+      await Promise.all([refreshState(), runSearch(searchQuery), loadLocalTracks()]);
     };
 
     void boot();
@@ -155,39 +200,62 @@ function App() {
                 </Button>
               </form>
 
+              <div className="mt-4 rounded-[24px] border border-white/10 bg-black/20 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="hud-label">Local Upload</p>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Upload an audio file you control so it can be selected and analyzed later.
+                    </p>
+                  </div>
+                  <div className="flex flex-1 flex-col gap-3 sm:flex-row lg:max-w-xl">
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*"
+                      onChange={(event) => setSelectedUploadFile(event.target.files?.[0] ?? null)}
+                      className="block w-full rounded-full border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
+                    />
+                    <Button type="button" size="lg" variant="secondary" disabled={uploading} onClick={() => void handleUpload()}>
+                      <Upload className="mr-2 h-4 w-4" />
+                      {uploading ? "Uploading..." : "Upload Track"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               {searchError ? (
                 <div className="mt-4 rounded-[20px] border border-destructive/30 bg-destructive/10 p-3 text-sm text-red-200">
                   {searchError}
                 </div>
               ) : null}
 
+              {uploadError ? (
+                <div className="mt-4 rounded-[20px] border border-destructive/30 bg-destructive/10 p-3 text-sm text-red-200">
+                  {uploadError}
+                </div>
+              ) : null}
+
               <div className="mt-6 grid gap-3">
-                {searchResults.map((track) => (
-                  <button
-                    key={`${track.source}-${track.track_id}`}
-                    className="group rounded-[26px] border border-white/10 bg-black/25 p-5 text-left transition hover:border-primary/40 hover:bg-white/[0.06]"
-                    onClick={() => void commitAction(() => selectTrack(track, true))}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-                            <Music2 className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-lg font-semibold text-white">{track.title}</p>
-                            <p className="truncate text-sm text-slate-400">{track.artist}</p>
-                          </div>
-                        </div>
+                {localTracks.length ? (
+                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="hud-label">Local Library</p>
+                        <p className="mt-1 text-sm text-slate-400">Uploaded tracks stay available through the local source.</p>
                       </div>
-                      <span className="whitespace-nowrap text-sm text-slate-400">{formatDuration(track.duration_seconds)}</span>
+                      <Badge variant="muted">{localTracks.length} local</Badge>
                     </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <TrackChip label="BPM" value={`${track.motion_profile.bpm}`} />
-                      <TrackChip label="Energy" value={track.motion_profile.energy.toFixed(2)} />
-                      <TrackChip label="Pattern" value={track.motion_profile.pattern_bias} />
+                    <div className="grid gap-3">
+                      {localTracks.map((track) => (
+                        <TrackResultCard key={`${track.source}-${track.track_id}`} track={track} onSelect={() => void commitAction(() => selectTrack(track, true))} />
+                      ))}
                     </div>
-                  </button>
+                  </div>
+                ) : null}
+
+                {searchResults.map((track) => (
+                  <TrackResultCard key={`${track.source}-${track.track_id}`} track={track} onSelect={() => void commitAction(() => selectTrack(track, true))} />
                 ))}
 
                 {!searchResults.length && !searching ? (
@@ -425,6 +493,38 @@ function TrackChip({ label, value }: { label: string; value: string }) {
       <p className="hud-label mb-1">{label}</p>
       <p className="truncate text-sm font-medium capitalize text-white">{value}</p>
     </div>
+  );
+}
+
+function TrackResultCard({ track, onSelect }: { track: TrackSummary; onSelect: () => void }) {
+  return (
+    <button
+      className="group rounded-[26px] border border-white/10 bg-black/25 p-5 text-left transition hover:border-primary/40 hover:bg-white/[0.06]"
+      onClick={onSelect}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+              <Music2 className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="truncate text-lg font-semibold text-white">{track.title}</p>
+                <Badge variant={track.source === "local" ? "accent" : "muted"}>{track.source}</Badge>
+              </div>
+              <p className="truncate text-sm text-slate-400">{track.artist}</p>
+            </div>
+          </div>
+        </div>
+        <span className="whitespace-nowrap text-sm text-slate-400">{formatDuration(track.duration_seconds)}</span>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <TrackChip label="BPM" value={`${track.motion_profile.bpm}`} />
+        <TrackChip label="Energy" value={track.motion_profile.energy.toFixed(2)} />
+        <TrackChip label="Pattern" value={track.motion_profile.pattern_bias} />
+      </div>
+    </button>
   );
 }
 

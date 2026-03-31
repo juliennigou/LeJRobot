@@ -15,7 +15,7 @@ import type {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
-  if (!headers.has("Content-Type")) {
+  if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -91,6 +91,16 @@ export function searchTracks(query: string, source = "jamendo", limit = 8) {
   });
 
   return request<TrackSearchResponse>(`/api/tracks/search?${params.toString()}`);
+}
+
+export function uploadTrack(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return request<TrackSummary>("/api/tracks/upload", {
+    method: "POST",
+    body: formData,
+  });
 }
 
 export function selectTrack(track: TrackSummary, autoplay = true) {

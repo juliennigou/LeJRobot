@@ -12,7 +12,7 @@ The delivery sequence is:
 - `#18` Phase 1: music analysis console for dual-arm SO-101 dance system
 
 ## Ticket Stack
-- `#10` Define audio analysis models and API contracts for dual-arm choreography
+- `#10` Define audio analysis models and API contracts for dual-arm choreography [done]
 - `#11` Add local audio upload and analyzable track source pipeline
 - `#12` Implement backend audio analysis pipeline with librosa and caching
 - `#13` Generate dual-arm choreography timelines from analysis data
@@ -22,14 +22,16 @@ The delivery sequence is:
 - `#17` Prepare dual-arm LeRobot adapter and safety envelope
 
 ## Current Status
-- Current PR target: `#10`
+- Current PR target: `#11`
 - Current backend state:
   - Search and track selection exist
+  - Local upload and persistent local track metadata are being added
   - Track motion profile is still synthetic
   - Spectrum and dance state are still synthetic
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
+  - Minimal local upload/select flow is being added without redesigning the page
   - Analysis tabs are still placeholder-driven
 
 ## Working Decisions
@@ -37,6 +39,7 @@ The delivery sequence is:
 - Keep leader and follower as separate hardware profiles even if they share motor family overlap.
 - Keep current search/select compatibility while expanding schema.
 - Do not fake real analysis results in contract tickets. Contract endpoints may exist before the implementation behind them.
+- Persist local upload metadata under `.data/uploads/index.json` and keep uploaded media files under `.data/uploads/files/`.
 
 ## PR Order
 1. `#10` Data models and API contracts

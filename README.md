@@ -74,6 +74,18 @@ export JAMENDO_CLIENT_ID="your_client_id"
 ./run_app.sh
 ```
 
+## Local Uploads
+
+The app also supports local audio uploads.
+
+- Uploaded files are stored under `.data/uploads/`
+- Metadata is persisted locally so uploaded tracks remain available as the local source
+- Supported formats are currently: `mp3`, `wav`, `ogg`, `flac`, `m4a`, `aac`
+
+Backend note:
+
+- `python-multipart` is now required by the FastAPI app to accept file uploads
+
 ## Next step
 
 The next engineering step is to replace the estimated motion profile with real audio analysis and then swap the mock `RobotStateStore` motion engine for a real adapter that pushes commands through LeRobot / Feetech to your follower arm while preserving the current API shape.

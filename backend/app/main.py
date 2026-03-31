@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from .music import JamendoTrackProvider, TrackProviderError
+from .music import JamendoTrackProvider, LocalTrackLibrary, TrackProviderError, UPLOADS_DIR
 from .models import (
     AnalysisStartRequest,
     AnalysisStartResponse,
@@ -29,6 +30,7 @@ from .state import RobotStateStore
 app = FastAPI(title="LeRobot Motion Console API", version="0.1.0")
 store = RobotStateStore()
 jamendo_provider = JamendoTrackProvider()
+local_library = LocalTrackLibrary()
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +42,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/media/uploads", StaticFiles(directory=UPLOADS_DIR), name="local-uploads")
 
 
 @app.get("/api/health")
@@ -91,11 +94,13 @@ def search_tracks(
     source: TrackSource = TrackSource.JAMENDO,
     limit: int = 8,
 ) -> TrackSearchResponse:
-    if source != TrackSource.JAMENDO:
-        raise HTTPException(status_code=400, detail=f"Track source '{source}' is not implemented yet")
-
     try:
-        results = jamendo_provider.search(q, limit=limit)
+        if source == TrackSource.JAMENDO:
+            results = jamendo_provider.search(q, limit=limit)
+        elif source == TrackSource.LOCAL:
+            results = local_library.search(q, limit=limit)
+        else:
+            raise HTTPException(status_code=400, detail=f"Track source '{source}' is not implemented yet")
     except TrackProviderError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -105,6 +110,17 @@ def search_tracks(
 @app.get("/api/tracks/current", response_model=TrackSummary | None)
 def get_current_track() -> TrackSummary | None:
     return store.current_track()
+
+
+@app.post("/api/tracks/upload", response_model=TrackSummary)
+async def upload_track(file: UploadFile = File(...)) -> TrackSummary:
+    try:
+        file.file.seek(0)
+        return local_library.ingest_upload(file.filename, file.content_type, file.file)
+    except TrackProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        await file.close()
 
 
 @app.post("/api/tracks/select", response_model=RobotState)
