@@ -26,7 +26,7 @@ import type {
   AnalysisStatusResponse,
   AudioAnalysis,
   ChoreographyTimeline,
-  MovementPreset,
+  MovementDefinition,
   RobotState,
   TrackSummary,
 } from "@/lib/types";
@@ -44,6 +44,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { average, formatDuration } from "@/lib/analysis-view";
+
+type MovementTuning = {
+  presetId: string;
+  frequencyHz: number;
+  cycles: number;
+  amplitudeScale: number;
+  softness: number;
+  asymmetry: number;
+};
+
+function defaultMovementTuning(movement: MovementDefinition): MovementTuning {
+  const defaultPreset =
+    movement.presets.find((preset) => preset.preset_id === movement.default_preset_id) ?? movement.presets[0];
+  return {
+    presetId: defaultPreset?.preset_id ?? "normal",
+    frequencyHz: defaultPreset?.frequency_hz ?? 0.8,
+    cycles: defaultPreset?.cycles ?? 2,
+    amplitudeScale: defaultPreset?.amplitude_scale ?? 1.0,
+    softness: defaultPreset?.softness ?? 0.72,
+    asymmetry: defaultPreset?.asymmetry ?? 0.0,
+  };
+}
 
 function App() {
   const [activeView, setActiveView] = useState<AppView>("home");
@@ -70,11 +92,7 @@ function App() {
   const [hardwareActionBusy, setHardwareActionBusy] = useState<string | null>(null);
   const [selectedMovementArmId, setSelectedMovementArmId] = useState<string | null>(null);
   const [movementBusyAction, setMovementBusyAction] = useState<string | null>(null);
-  const [selectedMovementPresetId, setSelectedMovementPresetId] = useState<string>("normal");
-  const [movementFrequencyHz, setMovementFrequencyHz] = useState(0.9);
-  const [movementCycles, setMovementCycles] = useState(4);
-  const [movementAmplitudeScale, setMovementAmplitudeScale] = useState(1.0);
-  const [movementSoftness, setMovementSoftness] = useState(0.72);
+  const [movementTunings, setMovementTunings] = useState<Record<string, MovementTuning>>({});
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -183,20 +201,6 @@ function App() {
 
   const currentTrack = state?.transport.current_track ?? null;
   const movementLibrary = state?.movement_library ?? null;
-  const waveDefinition = useMemo(
-    () => movementLibrary?.movements.find((movement) => movement.movement_id === "wave") ?? null,
-    [movementLibrary],
-  );
-  const selectedMovementPreset = useMemo<MovementPreset | null>(() => {
-    if (!waveDefinition) {
-      return null;
-    }
-    return (
-      waveDefinition.presets.find((preset) => preset.preset_id === selectedMovementPresetId) ??
-      waveDefinition.presets[0] ??
-      null
-    );
-  }, [selectedMovementPresetId, waveDefinition]);
 
   useEffect(() => {
     if (!currentTrack) {
@@ -415,24 +419,41 @@ function App() {
   }, [selectedMovementArmId, state?.dual_arm.arms]);
 
   useEffect(() => {
-    if (!waveDefinition) {
+    const movements = movementLibrary?.movements ?? [];
+    if (!movements.length) {
       return;
     }
-    const defaultPresetId = waveDefinition.default_preset_id ?? waveDefinition.presets[0]?.preset_id ?? "normal";
-    if (!waveDefinition.presets.some((preset) => preset.preset_id === selectedMovementPresetId)) {
-      setSelectedMovementPresetId(defaultPresetId);
-    }
-  }, [selectedMovementPresetId, waveDefinition]);
+    setMovementTunings((current) => {
+      const next: Record<string, MovementTuning> = {};
+      for (const movement of movements) {
+        const existing = current[movement.movement_id];
+        const presetIds = new Set(movement.presets.map((preset) => preset.preset_id));
+        if (existing && presetIds.has(existing.presetId)) {
+          next[movement.movement_id] = existing;
+          continue;
+        }
+        next[movement.movement_id] = defaultMovementTuning(movement);
+      }
+      return next;
+    });
+  }, [movementLibrary]);
 
-  useEffect(() => {
-    if (!selectedMovementPreset) {
-      return;
-    }
-    setMovementFrequencyHz(selectedMovementPreset.frequency_hz);
-    setMovementCycles(selectedMovementPreset.cycles);
-    setMovementAmplitudeScale(selectedMovementPreset.amplitude_scale);
-    setMovementSoftness(selectedMovementPreset.softness);
-  }, [selectedMovementPreset?.preset_id]);
+  const updateMovementTuning = useCallback(
+    (movementId: string, updater: (current: MovementTuning) => MovementTuning) => {
+      const movement = movementLibrary?.movements.find((entry) => entry.movement_id === movementId);
+      if (!movement) {
+        return;
+      }
+      setMovementTunings((current) => {
+        const base = current[movementId] ?? defaultMovementTuning(movement);
+        return {
+          ...current,
+          [movementId]: updater(base),
+        };
+      });
+    },
+    [movementLibrary],
+  );
 
   const handleRunMovement = useCallback(
     async (movementId: string) => {
@@ -443,12 +464,15 @@ function App() {
 
       setMovementBusyAction(`run:${movementId}`);
       try {
+        const movement = movementLibrary?.movements.find((entry) => entry.movement_id === movementId);
+        const tuning = movement ? movementTunings[movementId] ?? defaultMovementTuning(movement) : null;
         await runMovement(selectedMovementArmId, movementId, {
-          preset_id: selectedMovementPresetId,
-          frequency_hz: movementFrequencyHz,
-          cycles: movementCycles,
-          amplitude_scale: movementAmplitudeScale,
-          softness: movementSoftness,
+          preset_id: tuning?.presetId,
+          frequency_hz: tuning?.frequencyHz,
+          cycles: tuning?.cycles,
+          amplitude_scale: tuning?.amplitudeScale,
+          softness: tuning?.softness,
+          asymmetry: tuning?.asymmetry,
         });
         await refreshState();
         setError(null);
@@ -458,7 +482,7 @@ function App() {
         setMovementBusyAction(null);
       }
     },
-    [movementAmplitudeScale, movementCycles, movementFrequencyHz, movementSoftness, selectedMovementArmId, selectedMovementPresetId],
+    [movementLibrary, movementTunings, selectedMovementArmId],
   );
 
   const handleStopMovement = useCallback(async () => {
@@ -667,18 +691,43 @@ function App() {
             library={movementLibrary}
             arms={state?.dual_arm.arms ?? []}
             selectedArmId={selectedMovementArmId}
-            selectedPresetId={selectedMovementPresetId}
-            frequencyHz={movementFrequencyHz}
-            cycles={movementCycles}
-            amplitudeScale={movementAmplitudeScale}
-            softness={movementSoftness}
+            movementTunings={movementTunings}
             busyAction={movementBusyAction}
             onSelectArm={setSelectedMovementArmId}
-            onSelectPreset={setSelectedMovementPresetId}
-            onFrequencyChange={setMovementFrequencyHz}
-            onCyclesChange={setMovementCycles}
-            onAmplitudeScaleChange={setMovementAmplitudeScale}
-            onSoftnessChange={setMovementSoftness}
+            onSelectPreset={(movementId, presetId) =>
+              updateMovementTuning(movementId, (current) => {
+                const movement = movementLibrary?.movements.find((entry) => entry.movement_id === movementId);
+                const preset =
+                  movement?.presets.find((entry) => entry.preset_id === presetId) ?? movement?.presets[0] ?? null;
+                if (!preset) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  presetId: preset.preset_id,
+                  frequencyHz: preset.frequency_hz,
+                  cycles: preset.cycles,
+                  amplitudeScale: preset.amplitude_scale,
+                  softness: preset.softness,
+                  asymmetry: preset.asymmetry,
+                };
+              })
+            }
+            onFrequencyChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, frequencyHz: value }))
+            }
+            onCyclesChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, cycles: value }))
+            }
+            onAmplitudeScaleChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, amplitudeScale: value }))
+            }
+            onSoftnessChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, softness: value }))
+            }
+            onAsymmetryChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, asymmetry: value }))
+            }
             onRunMovement={(movementId) => void handleRunMovement(movementId)}
             onStopMovement={() => void handleStopMovement()}
           />
