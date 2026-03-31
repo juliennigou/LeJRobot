@@ -59,7 +59,10 @@ export function PerformancePage({
   const [mediaElement, setMediaElement] = useState<HTMLAudioElement | null>(null);
   const readyToDance = !!currentTrack && !!schedule && schedule.phrase_count > 0;
   const currentStatus = analysisStatus?.status ?? currentTrack?.analysis_status ?? "none";
-  const showResults = searching || !currentTrack;
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const currentTrackLabel = currentTrack ? `${currentTrack.title} ${currentTrack.artist}`.trim().toLowerCase() : "";
+  const isSearchingDifferentTrack = normalizedQuery.length > 0 && normalizedQuery !== currentTrackLabel && normalizedQuery !== currentTrack?.title.trim().toLowerCase();
+  const showResults = searching || !currentTrack || isSearchingDifferentTrack;
   const summaryItems = [
     { label: "status", value: currentStatus },
     { label: "bpm", value: analysis ? analysis.bpm.toFixed(1) : "--" },
