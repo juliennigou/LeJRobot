@@ -15,7 +15,7 @@ from .models import (
 WAVE_NEUTRAL_POSE = {
     "shoulder_pan": 14.0,
     "shoulder_lift": -36.0,
-    "elbow_flex": 74.0,
+    "elbow_flex": 4.0,
     "wrist_flex": 16.0,
     "wrist_roll": 4.0,
     "gripper": 8.0,
@@ -33,8 +33,8 @@ def _wave_profiles(scale: float) -> list[MovementJointProfile]:
         ),
         MovementJointProfile(
             joint_name="elbow_flex",
-            base_angle=74.0,
-            amplitude=10.5 * scale,
+            base_angle=4.0,
+            amplitude=9.0 * scale,
             phase_delay_radians=0.56,
         ),
         MovementJointProfile(
