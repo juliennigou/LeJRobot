@@ -19,7 +19,7 @@ The delivery sequence is:
 - `#14` Build waveform-first music console on the frontend [done]
 - `#15` Add spectrogram, rhythm, structure, and track-info analysis tabs [done]
 - `#16` Replace synthetic backend motion data with real audio analysis state [done]
-- `#17` Prepare dual-arm LeRobot adapter and safety envelope
+- `#17` Prepare dual-arm LeRobot adapter and safety envelope [done]
 - `#19` Add GitHub Actions CI for backend, frontend, and smoke validation
 - `#20` Dockerize frontend and backend with docker compose startup
 
@@ -32,6 +32,7 @@ The delivery sequence is:
   - Analysis results are cached on disk under `.data/analysis-cache/`
   - Dual-arm choreography output is section-aware and exposes left/right arm cue channels
   - `/api/state` now derives transport BPM, energy, spectrum bars, and autonomous servo modulation from cached analysis when it exists
+  - Dual-arm adapter profiles now exist for leader + follower with dry-run defaults, safety envelopes, execution modes, and emergency-stop/neutral planning endpoints
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists

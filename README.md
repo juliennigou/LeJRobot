@@ -98,6 +98,18 @@ Phase 1 now includes a real backend audio-analysis pipeline.
 - Remote Jamendo tracks are downloaded into the analysis cache before decoding
 - `/api/state` now reflects cached analysis data when available, instead of relying only on synthetic transport/spectrum placeholders
 
+## Dual-Arm Adapter Prep
+
+The backend now exposes a dry-run dual-arm execution surface for your SO-101 leader + follower setup.
+
+- `GET /api/arms` returns concrete adapter profiles for `leader` and `follower`
+- `POST /api/arms/execution-mode` switches between `mirror`, `unison`, `call_response`, and `asymmetric`
+- `POST /api/arms/{arm_id}/safety` updates per-arm dry-run/safety settings plus joint overrides for offsets, inversion, limits, and speed caps
+- `POST /api/arms/emergency-stop` disables torque in the adapter layer before any real motor writes are attempted
+- `POST /api/arms/neutral` moves the planning state back to the neutral scene
+
+This is still a planning and validation layer. It does not write to real hardware yet.
+
 Install or refresh backend dependencies after pulling:
 
 ```bash
@@ -147,4 +159,4 @@ Direct pushes to `main` should be avoided for feature work. The GitHub Actions w
 
 ## Next step
 
-The next engineering step is to finish the waveform-first frontend and the richer spectrogram/rhythm/structure tabs, then move into dual-arm LeRobot adapter and safety work.
+The next engineering step is the first real hardware execution pass that maps the dual-arm dry-run adapter to LeRobot motor commands with the existing safety envelope still enforced.

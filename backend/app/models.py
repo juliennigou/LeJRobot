@@ -66,6 +66,23 @@ class SymmetryRole(str, Enum):
     CONTRAST = "contrast"
 
 
+class ArmType(str, Enum):
+    FOLLOWER = "follower"
+    LEADER = "leader"
+
+
+class ArmChannel(str, Enum):
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class ExecutionMode(str, Enum):
+    MIRROR = "mirror"
+    UNISON = "unison"
+    CALL_RESPONSE = "call_response"
+    ASYMMETRIC = "asymmetric"
+
+
 class RobotConfig(BaseModel):
     assembly: str = "Follower"
     follower_id: str = "follower_arm"
@@ -114,12 +131,78 @@ class ServoState(BaseModel):
     motion_phase: str = "steady"
 
 
+class ArmJointConfig(BaseModel):
+    joint_name: str
+    servo_id: int
+    inverted: bool = False
+    offset_degrees: float = Field(default=0.0, ge=-180.0, le=180.0)
+    min_angle: float = Field(default=-120.0, ge=-180.0, le=180.0)
+    max_angle: float = Field(default=120.0, ge=-180.0, le=180.0)
+    max_speed: float = Field(default=1.0, ge=0.1, le=2.0)
+
+
+class ArmPreviewState(BaseModel):
+    channel: ArmChannel
+    current_pose_family: PoseFamily | None = None
+    current_cue_kind: MotionCueKind | None = None
+    symmetry_role: SymmetryRole | None = None
+    next_cue_time: float | None = Field(default=None, ge=0.0)
+    note: str | None = None
+
+
+class ArmSafetyEnvelope(BaseModel):
+    dry_run: bool = True
+    emergency_stop: bool = False
+    neutral_on_stop: bool = True
+    torque_enabled: bool = True
+    amplitude_scale: float = Field(default=1.0, ge=0.1, le=2.0)
+    speed_scale: float = Field(default=1.0, ge=0.1, le=2.0)
+    max_step_degrees: float = Field(default=12.0, ge=1.0, le=45.0)
+
+
+class ArmAdapterState(BaseModel):
+    arm_id: str
+    arm_type: ArmType
+    channel: ArmChannel
+    port: str | None = None
+    available: bool
+    connected: bool
+    calibrated: bool
+    safety: ArmSafetyEnvelope
+    joints: list[ArmJointConfig]
+    preview: ArmPreviewState
+    notes: str | None = None
+
+
+class DualArmExecutionState(BaseModel):
+    mode: ExecutionMode
+    choreography_ready: bool = False
+    dry_run_required: bool = True
+    emergency_stop_active: bool = False
+    neutral_pose_scene: SceneName = SceneName.IDLE
+    supported_modes: list[ExecutionMode] = Field(
+        default_factory=lambda: [
+            ExecutionMode.MIRROR,
+            ExecutionMode.UNISON,
+            ExecutionMode.CALL_RESPONSE,
+            ExecutionMode.ASYMMETRIC,
+        ]
+    )
+
+
+class DualArmState(BaseModel):
+    arms: list[ArmAdapterState]
+    execution: DualArmExecutionState
+
+
 class RobotState(BaseModel):
     connected: bool
     status: str
     mode: DanceMode
     follower_id: str
     follower_port: str
+    leader_id: str | None = None
+    leader_port: str | None = None
     safety_step_ticks: int
     latency_ms: int
     sync_quality: int = Field(ge=0, le=100)
@@ -127,6 +210,7 @@ class RobotState(BaseModel):
     transport: TransportState
     spectrum: list[int]
     servos: list[ServoState]
+    dual_arm: DualArmState
 
 
 class ModeUpdate(BaseModel):
@@ -152,6 +236,34 @@ class PulseUpdate(BaseModel):
 class ServoUpdate(BaseModel):
     target_angle: float | None = Field(default=None, ge=-140.0, le=140.0)
     torque_enabled: bool | None = None
+
+
+class ArmConnectionUpdate(BaseModel):
+    connected: bool = True
+
+
+class ArmJointOverride(BaseModel):
+    joint_name: str
+    inverted: bool | None = None
+    offset_degrees: float | None = Field(default=None, ge=-180.0, le=180.0)
+    min_angle: float | None = Field(default=None, ge=-180.0, le=180.0)
+    max_angle: float | None = Field(default=None, ge=-180.0, le=180.0)
+    max_speed: float | None = Field(default=None, ge=0.1, le=2.0)
+
+
+class ArmSafetyUpdate(BaseModel):
+    dry_run: bool | None = None
+    emergency_stop: bool | None = None
+    neutral_on_stop: bool | None = None
+    torque_enabled: bool | None = None
+    amplitude_scale: float | None = Field(default=None, ge=0.1, le=2.0)
+    speed_scale: float | None = Field(default=None, ge=0.1, le=2.0)
+    max_step_degrees: float | None = Field(default=None, ge=1.0, le=45.0)
+    joint_overrides: list[ArmJointOverride] = Field(default_factory=list)
+
+
+class ExecutionModeUpdate(BaseModel):
+    mode: ExecutionMode
 
 
 class TrackSearchResponse(BaseModel):

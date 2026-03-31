@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from backend.app import main as main_module
 from backend.app.analysis import AudioAnalysisCache, AudioAnalysisService
 from backend.app.music import JamendoTrackProvider, LocalTrackLibrary
+from backend.app.models import RobotConfig
 from backend.app.state import RobotStateStore
 
 
@@ -27,7 +28,15 @@ class ApiSmokeTest(unittest.TestCase):
         self.original_local_library = main_module.local_library
         self.original_analysis_service = main_module.analysis_service
 
-        main_module.store = RobotStateStore()
+        main_module.store = RobotStateStore(
+            config=RobotConfig(
+                follower_id="test_follower",
+                follower_port="/dev/mock-follower",
+                leader_id="test_leader",
+                leader_port="/dev/mock-leader",
+                safety_step_ticks=120,
+            )
+        )
         main_module.local_library = LocalTrackLibrary(
             uploads_dir=uploads_root,
             media_base_url="/media/uploads",
@@ -82,6 +91,8 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertAlmostEqual(state_payload["transport"]["energy"], payload["energy"]["rms"][0], places=3)
         expected_spectrum = self._expected_spectrum_prefix(payload)
         self.assertEqual(state_payload["spectrum"][:3], expected_spectrum)
+        self.assertEqual(len(state_payload["dual_arm"]["arms"]), 2)
+        self.assertEqual(state_payload["dual_arm"]["execution"]["mode"], "mirror")
 
         choreography = self.client.get(f"/api/choreography/{track['source']}/{track['track_id']}")
         self.assertEqual(choreography.status_code, 200)
@@ -97,6 +108,58 @@ class ApiSmokeTest(unittest.TestCase):
             any(cue["kind"] == "accent" for cue in choreography_payload["global_cues"])
             or any(cue["kind"] == "hold" for cue in choreography_payload["global_cues"])
         )
+
+        arms = self.client.get("/api/arms")
+        self.assertEqual(arms.status_code, 200)
+        arms_payload = arms.json()
+        self.assertEqual(len(arms_payload["arms"]), 2)
+        self.assertTrue(arms_payload["execution"]["dry_run_required"])
+        self.assertEqual(
+            {arm["arm_type"] for arm in arms_payload["arms"]},
+            {"leader", "follower"},
+        )
+
+        mode_update = self.client.post("/api/arms/execution-mode", json={"mode": "call_response"})
+        self.assertEqual(mode_update.status_code, 200)
+        self.assertEqual(mode_update.json()["execution"]["mode"], "call_response")
+
+        safety_update = self.client.post(
+            "/api/arms/test_leader/safety",
+            json={
+                "amplitude_scale": 0.74,
+                "speed_scale": 0.8,
+                "joint_overrides": [
+                    {
+                        "joint_name": "wrist_roll",
+                        "inverted": False,
+                        "offset_degrees": 7.5,
+                        "max_speed": 0.7,
+                    }
+                ],
+            },
+        )
+        self.assertEqual(safety_update.status_code, 200)
+        leader = next(arm for arm in safety_update.json()["arms"] if arm["arm_id"] == "test_leader")
+        self.assertAlmostEqual(leader["safety"]["amplitude_scale"], 0.74, places=2)
+        wrist_roll = next(joint for joint in leader["joints"] if joint["joint_name"] == "wrist_roll")
+        self.assertFalse(wrist_roll["inverted"])
+        self.assertAlmostEqual(wrist_roll["offset_degrees"], 7.5, places=2)
+        self.assertAlmostEqual(wrist_roll["max_speed"], 0.7, places=2)
+
+        emergency_stop = self.client.post("/api/arms/emergency-stop")
+        self.assertEqual(emergency_stop.status_code, 200)
+        estop_payload = emergency_stop.json()
+        self.assertTrue(estop_payload["execution"]["emergency_stop_active"])
+        self.assertTrue(all(not arm["safety"]["torque_enabled"] for arm in estop_payload["arms"]))
+
+        state_after_stop = self.client.get("/api/state")
+        self.assertEqual(state_after_stop.status_code, 200)
+        self.assertFalse(state_after_stop.json()["transport"]["playing"])
+        self.assertTrue(all(not servo["torque_enabled"] for servo in state_after_stop.json()["servos"]))
+
+        neutral = self.client.post("/api/arms/neutral")
+        self.assertEqual(neutral.status_code, 200)
+        self.assertEqual(neutral.json()["execution"]["neutral_pose_scene"], "idle")
 
         cache_files = list((Path(self.tempdir.name) / "analysis-cache" / "json" / "local").glob("*.json"))
         self.assertTrue(cache_files)
