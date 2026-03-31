@@ -1,4 +1,5 @@
-import { Activity, Hand, Loader2, Play, Square, Waves } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Activity, ChevronDown, Info, Loader2, Play, Square } from "lucide-react";
 
 import type {
   ArmAdapterState,
@@ -9,7 +10,6 @@ import type {
 } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -105,370 +105,201 @@ export function MovementLibraryPage({
     arm_ids: [],
     progress: 0,
   };
+
+  const [expandedMovementId, setExpandedMovementId] = useState<string | null>(null);
+
   const selectedArm = arms.find((arm) => arm.arm_id === selectedArmId) ?? null;
+  const readyArms = useMemo(() => arms.filter((arm) => armReady(arm)), [arms]);
+  const canRunCurrentScope = targetScope === "single" ? !!selectedArm && armReady(selectedArm) : readyArms.length >= 2;
 
   return (
-    <section className="grid gap-6">
-      <Card className="border-white/10 bg-white/[0.04]">
-        <CardHeader className="gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge>Movement Library</Badge>
-            <Badge variant="accent">First Live Motion Path</Badge>
-            <Badge variant="muted">{active.status === "running" ? "Movement Running" : "Ready"}</Badge>
+    <section className="space-y-6">
+      <header className="space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge>Movement Library</Badge>
+              <Badge variant="muted">{library?.movements.length ?? 0} movements</Badge>
+              <Badge variant={active.status === "running" ? "accent" : "muted"}>{active.status}</Badge>
+            </div>
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight text-white">Manual movement library</h1>
+              <p className="mt-1 max-w-2xl text-sm text-slate-400">
+                Pick a primitive, open it, tune it, and run it. The page stays focused on the movement list instead of exposing every control at once.
+              </p>
+            </div>
           </div>
-          <CardTitle className="text-3xl text-white">Movement Studio</CardTitle>
-          <CardDescription className="max-w-3xl text-slate-300">
-            Start with reusable motion primitives before binding everything to music. You can now target one arm or
-            both arms together, and switch between `unison` and `mirror` playback for the same movement.
-          </CardDescription>
-        </CardHeader>
-      </Card>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="border-white/10 bg-white/[0.04]">
-          <CardHeader>
-            <CardTitle className="text-white">Execution Target</CardTitle>
-            <CardDescription className="text-slate-300">
-              Choose a single arm or run both arms together. Dual-arm playback reuses the same tuned movement with
-              `unison` or `mirror` coordination.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                className={`rounded-[24px] border p-4 text-left transition ${
-                  targetScope === "single"
-                    ? "border-primary/40 bg-primary/10 shadow-[0_16px_40px_rgba(12,74,162,0.18)]"
-                    : "border-white/10 bg-black/20 hover:border-white/20"
-                }`}
-                onClick={() => onSelectTargetScope("single")}
-                type="button"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge>Single Arm</Badge>
-                  <Badge variant="muted">Manual selection</Badge>
-                </div>
-                <p className="mt-4 text-sm text-slate-300">Run a movement on one arm at a time for tuning and checks.</p>
-              </button>
-              <button
-                className={`rounded-[24px] border p-4 text-left transition ${
-                  targetScope === "both"
-                    ? "border-primary/40 bg-primary/10 shadow-[0_16px_40px_rgba(12,74,162,0.18)]"
-                    : "border-white/10 bg-black/20 hover:border-white/20"
-                }`}
-                onClick={() => onSelectTargetScope("both")}
-                type="button"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge>Both Arms</Badge>
-                  <Badge variant="muted">{executionMode === "mirror" ? "Mirror" : "Unison"}</Badge>
-                </div>
-                <p className="mt-4 text-sm text-slate-300">
-                  Drive leader and follower together using the same movement runtime.
-                </p>
-              </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <JointGuideInfo />
+            <Button
+              variant="ghost"
+              disabled={active.status !== "running" || busyAction !== null}
+              onClick={onStopMovement}
+            >
+              {busyAction === "stop-movement" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Square className="mr-2 h-4 w-4" />}
+              Stop
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-[26px] border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <ScopePill active={targetScope === "single"} onClick={() => onSelectTargetScope("single")}>
+                Single
+              </ScopePill>
+              <ScopePill active={targetScope === "both"} onClick={() => onSelectTargetScope("both")}>
+                Both
+              </ScopePill>
+              {targetScope === "both" ? (
+                <>
+                  <div className="mx-1 hidden h-5 w-px bg-white/10 sm:block" />
+                  <ScopePill active={executionMode === "mirror"} onClick={() => onSelectExecutionMode("mirror")}>
+                    Mirror
+                  </ScopePill>
+                  <ScopePill active={executionMode === "unison"} onClick={() => onSelectExecutionMode("unison")}>
+                    Unison
+                  </ScopePill>
+                </>
+              ) : null}
             </div>
 
-            {targetScope === "both" ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  className={`rounded-[20px] border px-4 py-3 text-left transition ${
-                    executionMode === "mirror"
-                      ? "border-primary/40 bg-primary/10 text-white"
-                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20"
-                  }`}
-                  onClick={() => onSelectExecutionMode("mirror")}
-                  type="button"
-                >
-                  <p className="text-sm font-semibold">Mirror</p>
-                  <p className="mt-1 text-xs text-slate-400">Oppose shoulder pan and wrist roll so the arms read symmetrically.</p>
-                </button>
-                <button
-                  className={`rounded-[20px] border px-4 py-3 text-left transition ${
-                    executionMode === "unison"
-                      ? "border-primary/40 bg-primary/10 text-white"
-                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20"
-                  }`}
-                  onClick={() => onSelectExecutionMode("unison")}
-                  type="button"
-                >
-                  <p className="text-sm font-semibold">Unison</p>
-                  <p className="mt-1 text-xs text-slate-400">Send the same joint trajectory to both arms together.</p>
-                </button>
-              </div>
-            ) : null}
-
-            <div className="grid gap-3 md:grid-cols-2">
-            {arms.map((arm) => {
-              const selected = arm.arm_id === selectedArmId;
-              const ready = armReady(arm);
-              return (
-                <button
-                  key={arm.arm_id}
-                  className={`rounded-[24px] border p-4 text-left transition ${
-                    selected
-                      ? "border-primary/40 bg-primary/10 shadow-[0_16px_40px_rgba(12,74,162,0.18)]"
-                      : "border-white/10 bg-black/20 hover:border-white/20"
-                  }`}
-                  onClick={() => onSelectArm(arm.arm_id)}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge>{titleize(arm.arm_type)}</Badge>
-                    <Badge variant="muted">{arm.arm_id}</Badge>
-                    <Badge variant={ready ? "accent" : "muted"}>{ready ? "Live Ready" : "Not Ready"}</Badge>
-                  </div>
-                  <p className="mt-4 text-sm text-slate-300">
-                    {ready
-                      ? "Connected, torque enabled, and ready to execute a bounded movement."
-                      : arm.notes ?? "Adjust safety state before running a movement."}
-                  </p>
-                </button>
-              );
-            })}
+            <div className="flex flex-wrap items-center gap-2">
+              {arms.map((arm) => {
+                const selected = arm.arm_id === selectedArmId;
+                const ready = armReady(arm);
+                return (
+                  <button
+                    key={arm.arm_id}
+                    type="button"
+                    onClick={() => onSelectArm(arm.arm_id)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition ${
+                      selected
+                        ? "border-primary/40 bg-primary/12 text-white"
+                        : "border-white/10 bg-black/20 text-slate-300 hover:border-white/20 hover:text-white"
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        ready ? "bg-emerald-400" : arm.connected ? "bg-amber-400" : "bg-red-400"
+                      }`}
+                    />
+                    <span>{titleize(arm.arm_type)}</span>
+                  </button>
+                );
+              })}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card className="border-white/10 bg-white/[0.04]">
-          <CardHeader>
-            <CardTitle className="text-white">6 Joint Roles</CardTitle>
-            <CardDescription className="text-slate-300">
-              Build movements from a small number of readable joint roles instead of fighting every servo at once.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {JOINT_GUIDE.map((joint) => (
-              <div key={joint.name} className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
-                <p className="text-sm font-semibold text-white">{joint.name}</p>
-                <p className="mt-1 text-sm text-slate-400">{joint.role}</p>
+        <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-white">
+                {active.movement_id ? `${titleize(active.movement_id)} is ${active.status}` : "No active movement"}
+              </p>
+              <p className="mt-1 text-sm text-slate-400">{active.note ?? "Choose a movement and run it on the selected execution target."}</p>
+            </div>
+            <div className="sm:min-w-52">
+              <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-slate-500">
+                <span>Progress</span>
+                <span>{Math.round((active.progress ?? 0) * 100)}%</span>
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+              <Progress value={(active.progress ?? 0) * 100} className="h-2 bg-white/5" />
+            </div>
+          </div>
+        </div>
+      </header>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card className="border-white/10 bg-white/[0.04]">
-          <CardHeader>
-            <CardTitle className="text-white">Available Movements</CardTitle>
-            <CardDescription className="text-slate-300">
-              Movements are high-level primitives. Some are layered and expressive like `wave`; others stay deliberately
-              simple, like the new `wrist_lean`.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {(library?.movements ?? []).map((movement) => {
-              const readyArms = arms.filter((arm) => armReady(arm));
-              const canRun =
-                active.status !== "running" &&
-                (targetScope === "single" ? (!!selectedArm && armReady(selectedArm)) : readyArms.length >= 2);
-              const isRunning = active.status === "running" && active.movement_id === movement.movement_id;
-              const tuning = movementTunings[movement.movement_id] ?? defaultMovementTuning(movement);
-              const selectedPreset =
-                movement.presets.find((preset) => preset.preset_id === tuning.presetId) ?? movement.presets[0] ?? null;
-              const phaseChain = selectedPreset?.joint_profiles
-                .map((profile) => `${titleize(profile.joint_name)} ${profile.phase_delay_radians.toFixed(2)}rad`)
-                .join(" -> ");
-              const followThroughChain = selectedPreset?.follow_through.profiles
-                .map((profile) => `${titleize(profile.source_joint)} → ${titleize(profile.joint_name)}`)
-                .join(" • ");
+      <div className="overflow-hidden rounded-[30px] border border-white/10 bg-white/[0.03]">
+        {(library?.movements ?? []).map((movement, index) => {
+          const tuning = movementTunings[movement.movement_id] ?? defaultMovementTuning(movement);
+          const selectedPreset =
+            movement.presets.find((preset) => preset.preset_id === tuning.presetId) ?? movement.presets[0] ?? null;
+          const isExpanded = expandedMovementId === movement.movement_id;
+          const isRunning = active.status === "running" && active.movement_id === movement.movement_id;
+          const runDisabled = busyAction !== null || active.status === "running" || !canRunCurrentScope;
 
-              return (
-                <div
-                  key={movement.movement_id}
-                  className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,19,34,0.95),rgba(6,11,20,0.98))] p-5"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="max-w-2xl">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Badge>{movement.name}</Badge>
-                        <Badge variant="muted">{movement.duration_seconds.toFixed(1)}s</Badge>
-                        <Badge variant="accent">{movement.recommended_arm ?? "follower"}</Badge>
-                        <Badge variant="muted">{movement.controller}</Badge>
+          return (
+            <article
+              key={movement.movement_id}
+              className={index === 0 ? "" : "border-t border-white/8"}
+            >
+              <div className="flex flex-col gap-4 px-4 py-4 sm:px-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedMovementId((current) => (current === movement.movement_id ? null : movement.movement_id))}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-300">
+                        <ChevronDown className={`h-4 w-4 transition ${isExpanded ? "rotate-180" : ""}`} />
                       </div>
-                      <p className="mt-4 text-base font-semibold text-white">{movement.summary}</p>
-                      <p className="mt-2 text-sm text-slate-400">{movement.description}</p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-3">
-                      <Button
-                        variant="secondary"
-                        disabled={!canRun || busyAction !== null}
-                        onClick={() => onRunMovement(movement.movement_id)}
-                      >
-                        {busyAction === `run:${movement.movement_id}` ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Play className="mr-2 h-4 w-4" />
-                        )}
-                        {isRunning ? "Running..." : targetScope === "both" ? "Run Both Arms" : "Run Movement"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        disabled={active.status !== "running" || busyAction !== null}
-                        onClick={onStopMovement}
-                      >
-                        {busyAction === "stop-movement" ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Square className="mr-2 h-4 w-4" />
-                        )}
-                        Stop
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    {movement.focus_joints.map((joint) => (
-                      <Badge key={joint} variant="muted">
-                        {titleize(joint)}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  {movement.controller === "oscillator" && movement.presets.length > 0 ? (
-                    <div className="mt-6 grid gap-5 rounded-[22px] border border-white/10 bg-black/25 p-4">
-                      <div>
-                        <p className="text-sm font-semibold text-white">Style Presets</p>
-                        <p className="mt-1 text-sm text-slate-400">
-                          Use these to test timing and intensity directly next to the movement before running it.
-                        </p>
-                        <div className="mt-4 flex flex-wrap gap-3">
-                          {movement.presets.map((preset) => (
-                            <button
-                              key={preset.preset_id}
-                              className={`rounded-2xl border px-4 py-3 text-left transition ${
-                                tuning.presetId === preset.preset_id
-                                  ? "border-primary/40 bg-primary/10 text-white"
-                                  : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20"
-                              }`}
-                              onClick={() => onSelectPreset(movement.movement_id, preset.preset_id)}
-                              type="button"
-                            >
-                              <p className="text-sm font-semibold">{preset.label}</p>
-                              <p className="mt-1 max-w-xs text-xs text-slate-400">{preset.summary}</p>
-                            </button>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-lg font-semibold text-white">{movement.name}</p>
+                          <Badge variant="muted">{movement.duration_seconds.toFixed(1)}s</Badge>
+                          <Badge variant="muted">{movement.controller}</Badge>
+                        </div>
+                        <p className="mt-2 max-w-3xl text-sm text-slate-400">{movement.summary}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {movement.focus_joints.map((joint) => (
+                            <Badge key={joint} variant="muted">
+                              {titleize(joint)}
+                            </Badge>
                           ))}
                         </div>
                       </div>
+                    </div>
+                  </button>
 
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <TuningSlider
-                          label="Tempo"
-                          value={tuning.frequencyHz}
-                          display={`${tuning.frequencyHz.toFixed(2)} Hz`}
-                          min={0.2}
-                          max={1.5}
-                          step={0.01}
-                          onChange={(value) => onFrequencyChange(movement.movement_id, value)}
-                        />
-                        <TuningSlider
-                          label="Cycles"
-                          value={tuning.cycles}
-                          display={`${tuning.cycles.toFixed(0)} cycles`}
-                          min={1}
-                          max={8}
-                          step={1}
-                          onChange={(value) => onCyclesChange(movement.movement_id, Math.round(value))}
-                        />
-                        <TuningSlider
-                          label="Amplitude"
-                          value={tuning.amplitudeScale}
-                          display={`${tuning.amplitudeScale.toFixed(2)}x`}
-                          min={0.5}
-                          max={1.6}
-                          step={0.01}
-                          onChange={(value) => onAmplitudeScaleChange(movement.movement_id, value)}
-                        />
-                        <TuningSlider
-                          label="Softness"
-                          value={tuning.softness}
-                          display={tuning.softness.toFixed(2)}
-                          min={0.2}
-                          max={1.0}
-                          step={0.01}
-                          onChange={(value) => onSoftnessChange(movement.movement_id, value)}
-                        />
-                        <TuningSlider
-                          label="Asymmetry"
-                          value={tuning.asymmetry}
-                          display={tuning.asymmetry.toFixed(2)}
-                          min={0}
-                          max={1}
-                          step={0.01}
-                          onChange={(value) => onAsymmetryChange(movement.movement_id, value)}
-                        />
-                      </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      variant={isRunning ? "secondary" : "default"}
+                      disabled={runDisabled}
+                      onClick={() => onRunMovement(movement.movement_id)}
+                    >
+                      {busyAction === `run:${movement.movement_id}` ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="mr-2 h-4 w-4" />
+                      )}
+                      {targetScope === "both" ? "Run Both" : "Run"}
+                    </Button>
+                  </div>
+                </div>
 
-                      <div className="grid gap-4 rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-white">Follow-Through Layer</p>
-                            <p className="mt-1 text-sm text-slate-400">
-                              Add delayed reactive motion so the gesture settles and propagates through the arm.
-                            </p>
+                {isExpanded ? (
+                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-4 sm:p-5">
+                    <div className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
+                      <div className="space-y-5">
+                        <div>
+                          <p className="hud-label">Preset</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {movement.presets.map((preset) => (
+                              <button
+                                key={preset.preset_id}
+                                type="button"
+                                onClick={() => onSelectPreset(movement.movement_id, preset.preset_id)}
+                                className={`rounded-full border px-4 py-2 text-sm transition ${
+                                  tuning.presetId === preset.preset_id
+                                    ? "border-primary/40 bg-primary/12 text-white"
+                                    : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:text-white"
+                                }`}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
                           </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant={tuning.followThroughEnabled ? "accent" : "muted"}>
-                              {tuning.followThroughEnabled ? "Enabled" : "Disabled"}
-                            </Badge>
-                            <Switch
-                              checked={tuning.followThroughEnabled}
-                              onCheckedChange={(value) => onFollowThroughEnabledChange(movement.movement_id, value)}
-                            />
-                          </div>
+                          {selectedPreset ? <p className="mt-3 text-sm text-slate-400">{selectedPreset.summary}</p> : null}
                         </div>
 
-                        {tuning.followThroughEnabled ? (
-                          <div className="grid gap-4 xl:grid-cols-2">
-                            <TuningSlider
-                              label="Delay"
-                              value={tuning.followThroughDelaySeconds}
-                              display={`${tuning.followThroughDelaySeconds.toFixed(2)} s`}
-                              min={0}
-                              max={0.35}
-                              step={0.01}
-                              onChange={(value) => onFollowThroughDelayChange(movement.movement_id, value)}
-                            />
-                            <TuningSlider
-                              label="Gain"
-                              value={tuning.followThroughGain}
-                              display={tuning.followThroughGain.toFixed(2)}
-                              min={0}
-                              max={0.8}
-                              step={0.01}
-                              onChange={(value) => onFollowThroughGainChange(movement.movement_id, value)}
-                            />
-                            <TuningSlider
-                              label="Damping"
-                              value={tuning.followThroughDamping}
-                              display={tuning.followThroughDamping.toFixed(2)}
-                              min={0}
-                              max={1}
-                              step={0.01}
-                              onChange={(value) => onFollowThroughDampingChange(movement.movement_id, value)}
-                            />
-                            <TuningSlider
-                              label="Settle"
-                              value={tuning.followThroughSettle}
-                              display={tuning.followThroughSettle.toFixed(2)}
-                              min={0}
-                              max={0.5}
-                              step={0.01}
-                              onChange={(value) => onFollowThroughSettleChange(movement.movement_id, value)}
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-                        <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
-                          <p className="text-sm font-semibold text-white">Prepared Base Pose</p>
-                          <p className="mt-1 text-sm text-slate-400">
-                            This is the neutral pose used before the oscillator adds motion. It makes testing easier
-                            because you can see exactly where the gesture starts.
-                          </p>
-                          <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm font-semibold text-white">Base pose</p>
+                          <p className="mt-1 text-sm text-slate-400">Prepared starting angles before the motion layer begins.</p>
+                          <div className="mt-4 flex flex-wrap gap-2">
                             {Object.entries(movement.neutral_pose).map(([joint, value]) => (
                               <Badge key={joint} variant="muted">
                                 {titleize(joint)} {value.toFixed(0)}°
@@ -476,77 +307,195 @@ export function MovementLibraryPage({
                             ))}
                           </div>
                         </div>
-                        <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
-                          <p className="text-sm font-semibold text-white">Phase Chain</p>
-                          <p className="mt-1 text-sm text-slate-400">
-                            Proximal joints start first; distal joints finish the gesture.
-                          </p>
-                          <p className="mt-3 text-sm text-slate-200">{phaseChain ?? "No preset selected."}</p>
-                          {followThroughChain ? (
-                            <p className="mt-3 text-xs text-slate-400">Follow-through: {followThroughChain}</p>
-                          ) : null}
+
+                        <div className="rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm font-semibold text-white">About this movement</p>
+                          <p className="mt-2 text-sm text-slate-400">{movement.description}</p>
                         </div>
                       </div>
+
+                      <div className="space-y-4">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <TuningSlider
+                            label="Tempo"
+                            value={tuning.frequencyHz}
+                            display={`${tuning.frequencyHz.toFixed(2)} Hz`}
+                            min={0.2}
+                            max={1.5}
+                            step={0.01}
+                            onChange={(value) => onFrequencyChange(movement.movement_id, value)}
+                          />
+                          <TuningSlider
+                            label="Cycles"
+                            value={tuning.cycles}
+                            display={`${tuning.cycles.toFixed(0)} cycles`}
+                            min={1}
+                            max={8}
+                            step={1}
+                            onChange={(value) => onCyclesChange(movement.movement_id, Math.round(value))}
+                          />
+                          <TuningSlider
+                            label="Amplitude"
+                            value={tuning.amplitudeScale}
+                            display={`${tuning.amplitudeScale.toFixed(2)}x`}
+                            min={0.5}
+                            max={1.6}
+                            step={0.01}
+                            onChange={(value) => onAmplitudeScaleChange(movement.movement_id, value)}
+                          />
+                          <TuningSlider
+                            label="Softness"
+                            value={tuning.softness}
+                            display={tuning.softness.toFixed(2)}
+                            min={0.2}
+                            max={1.0}
+                            step={0.01}
+                            onChange={(value) => onSoftnessChange(movement.movement_id, value)}
+                          />
+                          <TuningSlider
+                            label="Asymmetry"
+                            value={tuning.asymmetry}
+                            display={tuning.asymmetry.toFixed(2)}
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            onChange={(value) => onAsymmetryChange(movement.movement_id, value)}
+                          />
+                        </div>
+
+                        <details className="rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
+                          <summary className="cursor-pointer list-none">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-white">Advanced follow-through</p>
+                                <p className="mt-1 text-sm text-slate-400">Delay, gain, damping, and settle tuning for the reactive layer.</p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <Badge variant={tuning.followThroughEnabled ? "accent" : "muted"}>
+                                  {tuning.followThroughEnabled ? "Enabled" : "Disabled"}
+                                </Badge>
+                                <Switch
+                                  checked={tuning.followThroughEnabled}
+                                  onCheckedChange={(value) => onFollowThroughEnabledChange(movement.movement_id, value)}
+                                />
+                              </div>
+                            </div>
+                          </summary>
+
+                          {tuning.followThroughEnabled ? (
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <TuningSlider
+                                label="Delay"
+                                value={tuning.followThroughDelaySeconds}
+                                display={`${tuning.followThroughDelaySeconds.toFixed(2)} s`}
+                                min={0}
+                                max={0.35}
+                                step={0.01}
+                                onChange={(value) => onFollowThroughDelayChange(movement.movement_id, value)}
+                              />
+                              <TuningSlider
+                                label="Gain"
+                                value={tuning.followThroughGain}
+                                display={tuning.followThroughGain.toFixed(2)}
+                                min={0}
+                                max={0.8}
+                                step={0.01}
+                                onChange={(value) => onFollowThroughGainChange(movement.movement_id, value)}
+                              />
+                              <TuningSlider
+                                label="Damping"
+                                value={tuning.followThroughDamping}
+                                display={tuning.followThroughDamping.toFixed(2)}
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                onChange={(value) => onFollowThroughDampingChange(movement.movement_id, value)}
+                              />
+                              <TuningSlider
+                                label="Settle"
+                                value={tuning.followThroughSettle}
+                                display={tuning.followThroughSettle.toFixed(2)}
+                                min={0}
+                                max={0.5}
+                                step={0.01}
+                                onChange={(value) => onFollowThroughSettleChange(movement.movement_id, value)}
+                              />
+                            </div>
+                          ) : null}
+                        </details>
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-
-        <Card className="border-white/10 bg-white/[0.04]">
-          <CardHeader>
-            <CardTitle className="text-white">Live Movement State</CardTitle>
-            <CardDescription className="text-slate-300">
-              Progress of the currently selected manual movement.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge>{active.movement_id ?? "No movement"}</Badge>
-                <Badge variant={active.status === "running" ? "accent" : "muted"}>{active.status}</Badge>
-                {active.preset_id ? <Badge variant="muted">{active.preset_id}</Badge> : null}
-                <Badge variant="muted">{active.target_scope}</Badge>
-                <Badge variant="muted">{active.execution_mode}</Badge>
-                {(active.arm_ids ?? []).map((armId) => (
-                  <Badge key={armId} variant="muted">
-                    {armId}
-                  </Badge>
-                ))}
+                  </div>
+                ) : null}
               </div>
-              <p className="mt-4 text-sm text-slate-300">{active.note ?? "Pick an arm and run a movement."}</p>
-              <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.24em] text-slate-500">
-                  <span>Progress</span>
-                  <span>{Math.round((active.progress ?? 0) * 100)}%</span>
-                </div>
-                <Progress value={(active.progress ?? 0) * 100} className="h-2.5 bg-white/5" />
-              </div>
-            </div>
+            </article>
+          );
+        })}
+      </div>
 
-            <div className="grid gap-3">
-              <MotionHint
-                icon={Waves}
-                title="Wave Anatomy"
-                description="One oscillator drives the whole gesture. Small shoulder motion leads, elbow follows, and wrist flex plus wrist roll provide the clearest visible wave."
-              />
-              <MotionHint
-                icon={Hand}
-                title="Safety Envelope"
-                description="The backend still applies dry-run checks, torque checks, emergency-stop, and per-joint step limits before each live write."
-              />
-              <MotionHint
-                icon={Activity}
-                title="Next Library Steps"
-                description="After wave, we can add punch, bloom, sweep, point, and idle-loop gestures with the same oscillator and synergy structure."
-              />
-            </div>
-          </CardContent>
-        </Card>
+      <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
+            <Activity className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-white">Live movement path</p>
+            <p className="mt-1 text-sm text-slate-400">
+              Manual runs still go through torque checks, dry-run gating, emergency stop, and step-limited writes before the arm moves.
+            </p>
+          </div>
+        </div>
       </div>
     </section>
+  );
+}
+
+function JointGuideInfo() {
+  return (
+    <div className="group relative">
+      <button
+        type="button"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-300 transition hover:border-white/20 hover:text-white"
+        aria-label="Joint roles"
+      >
+        <Info className="h-4 w-4" />
+      </button>
+      <div className="pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-20 w-72 rounded-[22px] border border-white/10 bg-slate-950/95 p-4 opacity-0 shadow-2xl transition group-hover:opacity-100 group-focus-within:opacity-100">
+        <p className="text-sm font-semibold text-white">6 joint roles</p>
+        <div className="mt-3 space-y-3">
+          {JOINT_GUIDE.map((joint) => (
+            <div key={joint.name}>
+              <p className="text-sm font-medium text-white">{joint.name}</p>
+              <p className="mt-1 text-sm text-slate-400">{joint.role}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScopePill({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-4 py-2 text-sm transition ${
+        active
+          ? "border-primary/40 bg-primary/12 text-white"
+          : "border-white/10 bg-black/20 text-slate-300 hover:border-white/20 hover:text-white"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -599,30 +548,6 @@ function TuningSlider({
         step={step}
         onValueChange={(values) => onChange(values[0] ?? value)}
       />
-    </div>
-  );
-}
-
-function MotionHint({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: typeof Waves;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-[20px] border border-white/10 bg-black/20 p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
-          <Icon className="h-4 w-4" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-white">{title}</p>
-          <p className="mt-1 text-sm text-slate-400">{description}</p>
-        </div>
-      </div>
     </div>
   );
 }
