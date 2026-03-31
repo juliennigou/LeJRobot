@@ -31,7 +31,7 @@ The delivery sequence is:
 - `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#34`
+- Current PR target: `#45`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -46,6 +46,7 @@ The delivery sequence is:
   - The backend now requires `feetech-servo-sdk` for real SO-101 telemetry through LeRobot
   - `#30` now enforces torque on/off, neutral moves, emergency stop, emergency reset, and live joint step limiting through the real Feetech write path
   - `#34` now adds a movement library abstraction and a first executable oscillator-driven `wave` movement for one live arm
+  - `#45` now adds terminal-first tooling to record manual SO-101 joint demonstrations, replay them through the existing safety path, and fit a cleaner wave preset from recordings
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
@@ -57,6 +58,7 @@ The delivery sequence is:
   - `#38` added a responsive side-by-side 2D visualizer so both arms can be seen moving from live telemetry
   - `#30` added dashboard controls for dry-run, torque, neutral, and emergency-stop management
   - `#34` adds a dedicated Movement Library page with arm selection, wave preset selection, and runtime tuning controls for the first live gesture
+  - `#45` adds terminal scripts for record/replay/fitting so manual observations can drive later motion refinement outside the UI
   - Music-driven choreography execution is not implemented yet, but the app can now execute a bounded library gesture on one live arm
 
 ## Workflow Rule
