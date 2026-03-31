@@ -286,8 +286,8 @@ class RobotStateStore:
 
     def set_transport(self, payload: TransportUpdate) -> RobotState:
         self.transport.track_name = payload.track_name
-        self.transport.bpm = payload.bpm
-        self.transport.energy = payload.energy
+        self.transport.bpm = max(40, min(220, int(round(payload.bpm))))
+        self.transport.energy = max(0.0, min(1.0, payload.energy))
         self.transport.playing = False if self.arm_adapter.emergency_stop_active() else payload.playing
         if self.transport.playing and self.mode == DanceMode.IDLE:
             self.mode = DanceMode.AUTONOMOUS

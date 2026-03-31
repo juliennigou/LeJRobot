@@ -252,8 +252,8 @@ function App() {
       try {
         const next = await setTransport({
           track_name: `${currentTrack.title} - ${currentTrack.artist}`,
-          bpm,
-          energy,
+          bpm: Math.max(40, Math.min(220, Math.round(bpm))),
+          energy: Math.max(0, Math.min(1, energy)),
           playing,
         });
         startTransition(() => {
