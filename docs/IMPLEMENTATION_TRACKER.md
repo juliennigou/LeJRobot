@@ -24,13 +24,13 @@ The delivery sequence is:
 - `#20` Dockerize frontend and backend with docker compose startup
 
 ## Current Status
-- Current PR target: `#15`
+- Current PR target: `#13`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
   - Real audio analysis is available behind `/api/analysis/*` for local uploads and Jamendo-backed tracks
   - Analysis results are cached on disk under `.data/analysis-cache/`
-  - Choreography output is present but still heuristic and will be refined in `#13`
+  - Dual-arm choreography output is being refined to become section-aware instead of mostly beat-mirrored
   - Spectrum and dance state are still synthetic
 - Current frontend state:
   - Home page is music-first

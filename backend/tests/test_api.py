@@ -72,22 +72,44 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertGreater(payload["bpm"], 0.0)
         self.assertGreater(len(payload["beats"]), 0)
         self.assertGreater(len(payload["waveform"]["peaks"]), 0)
+        self.assertGreaterEqual(len(payload["sections"]), 3)
 
         choreography = self.client.get(f"/api/choreography/{track['source']}/{track['track_id']}")
         self.assertEqual(choreography.status_code, 200)
-        self.assertGreater(len(choreography.json()["arm_left_cues"]), 0)
-        self.assertGreater(len(choreography.json()["arm_right_cues"]), 0)
+        choreography_payload = choreography.json()
+        self.assertGreater(len(choreography_payload["arm_left_cues"]), 0)
+        self.assertGreater(len(choreography_payload["arm_right_cues"]), 0)
+        self.assertTrue(any(cue["kind"] == "section_change" for cue in choreography_payload["global_cues"]))
+        self.assertGreaterEqual(
+            len({cue["symmetry_role"] for cue in choreography_payload["arm_left_cues"]}),
+            2,
+        )
+        self.assertTrue(
+            any(cue["kind"] == "accent" for cue in choreography_payload["global_cues"])
+            or any(cue["kind"] == "hold" for cue in choreography_payload["global_cues"])
+        )
 
         cache_files = list((Path(self.tempdir.name) / "analysis-cache" / "json" / "local").glob("*.json"))
         self.assertTrue(cache_files)
 
     def _fixture_wav(self) -> bytes:
         sample_rate = 22050
-        duration = 4.0
+        duration = 16.0
         timeline = np.linspace(0.0, duration, int(sample_rate * duration), endpoint=False)
-        carrier = 0.3 * np.sin(2 * math.pi * 220.0 * timeline)
-        envelope = 0.15 + 0.85 * ((np.sin(2 * math.pi * 2.0 * timeline) > 0).astype(float))
-        signal = carrier * envelope
+        carrier = 0.18 * np.sin(2 * math.pi * 220.0 * timeline) + 0.08 * np.sin(2 * math.pi * 440.0 * timeline)
+        pulse = (np.sin(2 * math.pi * 2.0 * timeline) > 0).astype(float)
+        sections = np.piecewise(
+            timeline,
+            [
+                timeline < 4.0,
+                (timeline >= 4.0) & (timeline < 8.0),
+                (timeline >= 8.0) & (timeline < 12.0),
+                timeline >= 12.0,
+            ],
+            [0.18, 0.95, 0.28, 0.82],
+        )
+        sparkle = 0.06 * np.sin(2 * math.pi * 9.0 * timeline) * (timeline >= 4.0)
+        signal = (carrier + sparkle) * (0.12 + sections * pulse)
 
         buffer = io.BytesIO()
         sf.write(buffer, signal, sample_rate, format="WAV")
