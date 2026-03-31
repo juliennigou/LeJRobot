@@ -24,7 +24,7 @@ The delivery sequence is:
 - `#20` Dockerize frontend and backend with docker compose startup
 
 ## Current Status
-- Current PR target: `#17`
+- Current PR target: `#15`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -37,8 +37,8 @@ The delivery sequence is:
   - Home page is music-first
   - Search/select flow exists
   - Minimal local upload/select flow exists without redesigning the page
-  - Analysis tabs are wired to the real backend analysis payload
-  - Waveform-first playback and analysis workstation views are in place
+  - Waveform is now the primary playback surface through `wavesurfer.js`
+  - Spectrogram, rhythm, structure, and track-info tabs are wired to the real backend analysis payload
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.
