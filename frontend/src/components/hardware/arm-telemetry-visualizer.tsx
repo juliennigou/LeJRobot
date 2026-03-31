@@ -14,6 +14,92 @@ const SEGMENTS = {
   wrist: 42,
   tool: 24,
 };
+type AnchorName = "folded" | "extended" | "calibration";
+
+type PoseAnchor = {
+  name: AnchorName;
+  joints: {
+    shoulder_pan: number;
+    shoulder_lift: number;
+    elbow_flex: number;
+    wrist_flex: number;
+    wrist_roll: number;
+    gripper: number;
+  };
+  shoulder: Point;
+  angles: {
+    upper: number;
+    lower: number;
+    wrist: number;
+    tool: number;
+  };
+};
+
+const REFERENCE_POSE = {
+  shoulder_pan: -10.2,
+  shoulder_lift: -98.6,
+  elbow_flex: 97.8,
+  wrist_flex: 72.7,
+  wrist_roll: 4.8,
+  gripper: 1.6,
+} as const;
+
+const POSE_ANCHORS: PoseAnchor[] = [
+  {
+    name: "folded",
+    joints: {
+      shoulder_pan: -10.2,
+      shoulder_lift: -98.6,
+      elbow_flex: 97.8,
+      wrist_flex: 72.7,
+      wrist_roll: 4.8,
+      gripper: 1.6,
+    },
+    shoulder: { x: 98, y: 214 },
+    angles: {
+      upper: -154,
+      lower: -28,
+      wrist: 18,
+      tool: 50,
+    },
+  },
+  {
+    name: "extended",
+    joints: {
+      shoulder_pan: -10.2,
+      shoulder_lift: 3.4,
+      elbow_flex: -86.5,
+      wrist_flex: -5.4,
+      wrist_roll: 4.8,
+      gripper: 1.6,
+    },
+    shoulder: { x: 100, y: 210 },
+    angles: {
+      upper: -90,
+      lower: 0,
+      wrist: 0,
+      tool: 0,
+    },
+  },
+  {
+    name: "calibration",
+    joints: {
+      shoulder_pan: -10.2,
+      shoulder_lift: 0.2,
+      elbow_flex: 18.3,
+      wrist_flex: 2.5,
+      wrist_roll: 4.8,
+      gripper: 1.6,
+    },
+    shoulder: { x: 98, y: 212 },
+    angles: {
+      upper: -90,
+      lower: -90,
+      wrist: -90,
+      tool: -90,
+    },
+  },
+];
 
 function servoMap(servos: ServoState[]) {
   return new Map(servos.map((servo) => [servo.name, servo]));
@@ -32,6 +118,28 @@ function clamp(value: number, min: number, max: number) {
 
 function degToRad(value: number) {
   return (value * Math.PI) / 180;
+}
+
+function interpolate(values: number[], weights: number[]) {
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  return values.reduce((sum, value, index) => sum + value * weights[index], 0) / totalWeight;
+}
+
+function poseDistance(
+  joints: PoseAnchor["joints"],
+  current: {
+    shoulder_pan: number;
+    shoulder_lift: number;
+    elbow_flex: number;
+    wrist_flex: number;
+  },
+) {
+  return Math.sqrt(
+    ((current.shoulder_pan - joints.shoulder_pan) / 20) ** 2 +
+      ((current.shoulder_lift - joints.shoulder_lift) / 70) ** 2 +
+      ((current.elbow_flex - joints.elbow_flex) / 90) ** 2 +
+      ((current.wrist_flex - joints.wrist_flex) / 75) ** 2,
+  );
 }
 
 function project(origin: Point, length: number, angleRad: number): Point {
@@ -65,13 +173,53 @@ function buildArmPose(arm: ArmAdapterState) {
   const wristRoll = telemetry.get("wrist_roll")?.angle ?? 0;
   const gripper = telemetry.get("gripper")?.angle ?? 0;
   const mirrored = arm.channel === "right";
+  const shoulderPanDelta = shoulderPan - REFERENCE_POSE.shoulder_pan;
+  const distances = POSE_ANCHORS.map((anchor) =>
+    poseDistance(anchor.joints, {
+      shoulder_pan: shoulderPan,
+      shoulder_lift: shoulderLift,
+      elbow_flex: elbowFlex,
+      wrist_flex: wristFlex,
+    }),
+  );
+  const weights = distances.map((distance) => 1 / Math.max(distance, 0.12) ** 2);
 
   const base = { x: 78, y: 252 };
-  const shoulder = { x: 98 + shoulderPan * 0.42, y: 214 };
-  const upperAngle = degToRad(-92 + shoulderLift * 0.85);
-  const elbowAngle = upperAngle + degToRad(elbowFlex * 0.82);
-  const wristAngle = elbowAngle + degToRad(wristFlex * 0.72);
-  const toolAngle = wristAngle + degToRad(wristFlex * 0.18);
+  const shoulder = {
+    x: interpolate(
+      POSE_ANCHORS.map((anchor) => anchor.shoulder.x),
+      weights,
+    ) + shoulderPanDelta * 0.34,
+    y:
+      interpolate(
+        POSE_ANCHORS.map((anchor) => anchor.shoulder.y),
+        weights,
+      ) - clamp(shoulderPanDelta * 0.08, -8, 8),
+  };
+  const upperAngleDeg = interpolate(
+    POSE_ANCHORS.map((anchor) => anchor.angles.upper),
+    weights,
+  );
+  const lowerAngleDeg = interpolate(
+    POSE_ANCHORS.map((anchor) => anchor.angles.lower),
+    weights,
+  );
+  const wristAngleDeg =
+    interpolate(
+      POSE_ANCHORS.map((anchor) => anchor.angles.wrist),
+      weights,
+    ) +
+    (wristRoll - REFERENCE_POSE.wrist_roll) * 0.08;
+  const toolAngleDeg =
+    interpolate(
+      POSE_ANCHORS.map((anchor) => anchor.angles.tool),
+      weights,
+    ) +
+    (wristRoll - REFERENCE_POSE.wrist_roll) * 0.12;
+  const upperAngle = degToRad(upperAngleDeg);
+  const elbowAngle = degToRad(lowerAngleDeg);
+  const wristAngle = degToRad(wristAngleDeg);
+  const toolAngle = degToRad(toolAngleDeg);
 
   const elbow = project(shoulder, SEGMENTS.upper, upperAngle);
   const wrist = project(elbow, SEGMENTS.lower, elbowAngle);
@@ -99,6 +247,7 @@ function buildArmPose(arm: ArmAdapterState) {
     points,
     jaws,
     shoulderPan,
+    shoulderPanDelta,
     wristRoll,
     gripper,
   };
@@ -131,7 +280,7 @@ function ArmTelemetryPanel({ arm }: { arm: ArmAdapterState }) {
   const pose = buildArmPose(arm);
   const hasTelemetry = arm.telemetry_live && arm.telemetry.length > 0;
   const [base, shoulder, elbow, wrist, roll, gripperBase] = pose.points;
-  const shoulderArcRadius = 24 + clamp(Math.abs(pose.shoulderPan) * 0.08, 2, 14);
+  const shoulderArcRadius = 24 + clamp(Math.abs(pose.shoulderPanDelta) * 0.12, 2, 14);
   const rollRadius = 12 + clamp(Math.abs(pose.wristRoll) * 0.04, 2, 10);
   const gripperArcRadius = 10 + clamp(Math.abs(pose.gripper) * 0.08, 2, 12);
 
