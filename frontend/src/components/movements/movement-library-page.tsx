@@ -288,8 +288,8 @@ export function MovementLibraryPage({
                           label="Asymmetry"
                           value={tuning.asymmetry}
                           display={tuning.asymmetry.toFixed(2)}
-                          min={-0.5}
-                          max={0.5}
+                          min={0}
+                          max={1}
                           step={0.01}
                           onChange={(value) => onAsymmetryChange(movement.movement_id, value)}
                         />

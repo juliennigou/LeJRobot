@@ -67,6 +67,10 @@ function defaultMovementTuning(movement: MovementDefinition): MovementTuning {
   };
 }
 
+function clampAsymmetry(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
 function App() {
   const [activeView, setActiveView] = useState<AppView>("home");
   const [state, setState] = useState<RobotState | null>(null);
@@ -472,7 +476,7 @@ function App() {
           cycles: tuning?.cycles,
           amplitude_scale: tuning?.amplitudeScale,
           softness: tuning?.softness,
-          asymmetry: tuning?.asymmetry,
+          asymmetry: tuning ? clampAsymmetry(tuning.asymmetry) : undefined,
         });
         await refreshState();
         setError(null);
@@ -709,7 +713,7 @@ function App() {
                   cycles: preset.cycles,
                   amplitudeScale: preset.amplitude_scale,
                   softness: preset.softness,
-                  asymmetry: preset.asymmetry,
+                  asymmetry: clampAsymmetry(preset.asymmetry),
                 };
               })
             }
@@ -726,7 +730,7 @@ function App() {
               updateMovementTuning(movementId, (current) => ({ ...current, softness: value }))
             }
             onAsymmetryChange={(movementId, value) =>
-              updateMovementTuning(movementId, (current) => ({ ...current, asymmetry: value }))
+              updateMovementTuning(movementId, (current) => ({ ...current, asymmetry: clampAsymmetry(value) }))
             }
             onRunMovement={(movementId) => void handleRunMovement(movementId)}
             onStopMovement={() => void handleStopMovement()}
