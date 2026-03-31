@@ -11,7 +11,6 @@ import type {
 import { formatDuration } from "@/lib/analysis-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { WaveformConsole } from "@/components/music/waveform-console";
 
@@ -61,6 +60,12 @@ export function PerformancePage({
   const readyToDance = !!currentTrack && !!schedule && schedule.phrase_count > 0;
   const currentStatus = analysisStatus?.status ?? currentTrack?.analysis_status ?? "none";
   const showResults = searching || !currentTrack;
+  const summaryItems = [
+    { label: "status", value: currentStatus },
+    { label: "bpm", value: analysis ? analysis.bpm.toFixed(1) : "--" },
+    { label: "phrases", value: schedule ? String(schedule.phrase_count) : "--" },
+    { label: "style", value: schedule?.style_id ?? "--" },
+  ];
 
   useEffect(() => {
     if (audioRef.current && audioRef.current !== mediaElement) {
@@ -150,12 +155,12 @@ export function PerformancePage({
         }}
         preload="auto"
       />
-      <Card className="border-white/10 bg-[linear-gradient(180deg,rgba(8,15,29,0.96),rgba(4,9,18,0.98))]">
-        <CardContent className="p-6 sm:p-8">
-          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
-            <div className="grid gap-4">
+      <div className="grid gap-6">
+        <div className="rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(8,15,29,0.96),rgba(4,9,18,0.98))] px-5 py-5 shadow-[0_30px_80px_rgba(0,0,0,0.35)] sm:px-6">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <form
-                className="flex flex-col gap-3 sm:flex-row"
+                className="flex flex-1 flex-col gap-3 sm:flex-row"
                 onSubmit={(event) => {
                   event.preventDefault();
                   onSearch();
@@ -166,61 +171,56 @@ export function PerformancePage({
                   <Input
                     value={searchQuery}
                     onChange={(event) => onSearchQueryChange(event.target.value)}
-                    placeholder="Search a track for autonomous playback"
-                    className="h-14 pl-11 pr-5 text-base"
+                    placeholder="Select a song and start the performance"
+                    className="h-13 rounded-full border-white/10 bg-black/20 pl-11 pr-5 text-base"
                   />
                 </div>
-                <Button type="submit" size="lg" className="sm:min-w-32" disabled={searching}>
+                <Button type="submit" size="lg" className="rounded-full px-6 sm:min-w-28" disabled={searching}>
                   {searching ? "Searching..." : "Search"}
                 </Button>
               </form>
 
-              {searchError ? <p className="mt-3 text-sm text-red-200">{searchError}</p> : null}
-
-              {showResults ? (
-                <div className="mt-4 grid gap-3">
-                  {results.slice(0, 6).map((track) => {
-                    const active = currentTrack?.track_id === track.track_id && currentTrack?.source === track.source;
-                    return (
-                      <button
-                        key={`${track.source}-${track.track_id}`}
-                        type="button"
-                        onClick={() => onSelectTrack(track)}
-                        className={`flex items-center justify-between gap-4 rounded-[24px] border px-4 py-4 text-left transition ${
-                          active
-                            ? "border-primary/40 bg-primary/10"
-                            : "border-white/10 bg-white/[0.03] hover:border-primary/30 hover:bg-white/[0.05]"
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-                              <Music2 className="h-4 w-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="truncate text-base font-semibold text-white">{track.title}</p>
-                              <p className="truncate text-sm text-slate-400">{track.artist}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex shrink-0 items-center gap-3">
-                          <Badge variant={track.source === "local" ? "accent" : "muted"}>{track.source}</Badge>
-                          <span className="text-sm text-slate-400">{formatDuration(track.duration_seconds)}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-4 rounded-[24px] border border-primary/25 bg-primary/[0.08] p-4">
-                  <p className="text-sm font-medium text-white">Locked on selected song</p>
-                </div>
-              )}
+              <div className="flex flex-wrap gap-2">
+                <Button className="rounded-full px-5" disabled={!readyToDance || autonomyBusy} onClick={onStartAutonomy}>
+                  <Play className="mr-2 h-4 w-4" />
+                  {autonomyBusy ? "Starting..." : "Start Dance"}
+                </Button>
+                <Button variant="ghost" className="rounded-full px-5" disabled={autonomyBusy || autonomy.status === "idle"} onClick={onStopAutonomy}>
+                  <Square className="mr-2 h-4 w-4" />
+                  Stop
+                </Button>
+              </div>
             </div>
 
-            <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            {searchError ? <p className="text-sm text-red-200">{searchError}</p> : null}
+
+            {showResults ? (
+              <div className="grid gap-2">
+                {results.slice(0, 5).map((track) => (
+                  <button
+                    key={`${track.source}-${track.track_id}`}
+                    type="button"
+                    onClick={() => onSelectTrack(track)}
+                    className="flex items-center justify-between gap-4 rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-3 text-left transition hover:border-primary/30 hover:bg-white/[0.05]"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                        <Music2 className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">{track.title}</p>
+                        <p className="truncate text-xs text-slate-400">{track.artist}</p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <Badge variant={track.source === "local" ? "accent" : "muted"}>{track.source}</Badge>
+                      <span className="text-xs text-slate-400">{formatDuration(track.duration_seconds)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0">
                   <p className="truncate text-2xl font-semibold text-white">
                     {currentTrack ? currentTrack.title : "No track selected"}
@@ -229,43 +229,29 @@ export function PerformancePage({
                     {currentTrack ? `${currentTrack.artist} · ${currentTrack.source}` : "Select a track to prepare the dance."}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button disabled={!readyToDance || autonomyBusy} onClick={onStartAutonomy}>
-                    <Play className="mr-2 h-4 w-4" />
-                    {autonomyBusy ? "Starting..." : "Start Dance"}
-                  </Button>
-                  <Button variant="ghost" disabled={autonomyBusy || autonomy.status === "idle"} onClick={onStopAutonomy}>
-                    <Square className="mr-2 h-4 w-4" />
-                    Stop
-                  </Button>
+                <div className="flex flex-wrap gap-2">
+                  {summaryItems.map((item) => (
+                    <CompactChip key={item.label} label={item.label} value={item.value} />
+                  ))}
+                  <CompactChip label="dance" value={autonomy.status} />
                 </div>
               </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <CompactChip label="analysis" value={currentStatus} />
-                <CompactChip label="bpm" value={analysis ? analysis.bpm.toFixed(1) : "--"} />
-                <CompactChip label="phrases" value={schedule ? `${schedule.phrase_count}` : "--"} />
-                <CompactChip label="status" value={autonomy.status} />
-                {schedule ? <CompactChip label="style" value={schedule.style_id} /> : null}
-              </div>
-            </div>
+            )}
           </div>
+        </div>
 
-          <div className="mt-6">
-            <WaveformConsole
-              track={currentTrack}
-              analysis={analysis}
-              schedule={schedule}
-              currentTime={currentTime}
-              transportPlaying={transportPlaying}
-              onTimeChange={onTimeChange}
-              onTransportChange={onTransportChange}
-              mediaElement={mediaElement}
-              compact
-            />
-          </div>
-        </CardContent>
-      </Card>
+        <WaveformConsole
+          track={currentTrack}
+          analysis={analysis}
+          schedule={schedule}
+          currentTime={currentTime}
+          transportPlaying={transportPlaying}
+          onTimeChange={onTimeChange}
+          onTransportChange={onTransportChange}
+          mediaElement={mediaElement}
+          compact
+        />
+      </div>
     </section>
   );
 }
