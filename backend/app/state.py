@@ -21,6 +21,7 @@ from .models import (
     ServoState,
     ServoUpdate,
     TrackReference,
+    TrackSummary,
     TrackSelection,
     TrackSource,
     TransportState,
@@ -107,6 +108,7 @@ class RobotStateStore:
         self.started_at = monotonic()
         self.last_tick = monotonic()
         self.scene = SceneName.IDLE
+        self.known_tracks: dict[tuple[TrackSource, str], TrackSummary] = {}
         self.analysis_statuses: dict[tuple[TrackSource, str], AnalysisStatusResponse] = {}
         self.analysis_results: dict[tuple[TrackSource, str], AudioAnalysis] = {}
         self.choreography_results: dict[tuple[TrackSource, str], ChoreographyTimeline] = {}
@@ -176,6 +178,17 @@ class RobotStateStore:
 
         current_track = self.transport.current_track
         if current_track and current_track.track_id == payload.track_id and current_track.source == payload.source:
+            status = AnalysisStatusResponse(
+                track_id=payload.track_id,
+                source=payload.source,
+                status=AnalysisStatus.NONE,
+                progress=0,
+                error=None,
+            )
+            self.analysis_statuses[key] = status
+            return status
+
+        if key in self.known_tracks:
             status = AnalysisStatusResponse(
                 track_id=payload.track_id,
                 source=payload.source,
@@ -274,6 +287,7 @@ class RobotStateStore:
 
     def select_track(self, payload: TrackSelection) -> RobotState:
         track = payload.track
+        self.remember_track(track)
         key = self._track_key(track.source, track.track_id)
         status = self.analysis_statuses.get(key)
         if status is None:
@@ -317,6 +331,8 @@ class RobotStateStore:
         return track
 
     def queue_analysis(self, payload: TrackReference) -> AnalysisStartResponse:
+        self.analysis_results.pop(self._track_key(payload.source, payload.track_id), None)
+        self.choreography_results.pop(self._track_key(payload.source, payload.track_id), None)
         status = AnalysisStatusResponse(
             track_id=payload.track_id,
             source=payload.source,
@@ -347,3 +363,71 @@ class RobotStateStore:
     def get_choreography(self, payload: TrackReference) -> ChoreographyTimeline | None:
         self._status_for_reference(payload)
         return self.choreography_results.get(self._track_key(payload.source, payload.track_id))
+
+    def remember_track(self, track: TrackSummary) -> TrackSummary:
+        self.known_tracks[self._track_key(track.source, track.track_id)] = track
+        return track
+
+    def remember_tracks(self, tracks: list[TrackSummary]) -> None:
+        for track in tracks:
+            self.remember_track(track)
+
+    def known_track(self, payload: TrackReference) -> TrackSummary | None:
+        return self.known_tracks.get(self._track_key(payload.source, payload.track_id))
+
+    def mark_analysis_processing(self, payload: TrackReference) -> AnalysisStatusResponse:
+        status = AnalysisStatusResponse(
+            track_id=payload.track_id,
+            source=payload.source,
+            status=AnalysisStatus.PROCESSING,
+            progress=10,
+            error=None,
+        )
+        self.analysis_statuses[self._track_key(payload.source, payload.track_id)] = status
+        self._sync_current_track_status(payload, status.status)
+        return status
+
+    def store_analysis(self, analysis: AudioAnalysis) -> AnalysisStatusResponse:
+        key = self._track_key(analysis.source, analysis.track_id)
+        self.analysis_results[key] = analysis
+        self.choreography_results[key] = analysis.choreography
+
+        known_track = self.known_tracks.get(key)
+        if known_track is not None:
+            known_track.analysis_status = AnalysisStatus.READY
+            known_track.motion_profile.bpm = max(40, min(220, int(round(analysis.bpm or known_track.motion_profile.bpm))))
+            known_track.motion_profile.energy = round(self._analysis_energy_mean(analysis), 2)
+            known_track.motion_profile.pattern_bias = analysis.choreography.global_cues[0].pose_family.value if analysis.choreography.global_cues else known_track.motion_profile.pattern_bias
+
+        status = AnalysisStatusResponse(
+            track_id=analysis.track_id,
+            source=analysis.source,
+            status=AnalysisStatus.READY,
+            progress=100,
+            error=None,
+        )
+        self.analysis_statuses[key] = status
+        self._sync_current_track_status(TrackReference(track_id=analysis.track_id, source=analysis.source), status.status)
+        return status
+
+    def mark_analysis_error(self, payload: TrackReference, message: str) -> AnalysisStatusResponse:
+        status = AnalysisStatusResponse(
+            track_id=payload.track_id,
+            source=payload.source,
+            status=AnalysisStatus.ERROR,
+            progress=100,
+            error=message,
+        )
+        self.analysis_statuses[self._track_key(payload.source, payload.track_id)] = status
+        self._sync_current_track_status(payload, status.status)
+        return status
+
+    def _sync_current_track_status(self, payload: TrackReference, status: AnalysisStatus) -> None:
+        current_track = self.transport.current_track
+        if current_track and current_track.track_id == payload.track_id and current_track.source == payload.source:
+            current_track.analysis_status = status
+
+    def _analysis_energy_mean(self, analysis: AudioAnalysis) -> float:
+        if not analysis.energy.rms:
+            return 0.0
+        return sum(analysis.energy.rms) / len(analysis.energy.rms)

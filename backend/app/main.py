@@ -4,6 +4,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from .analysis import AnalysisError, AudioAnalysisService
 from .music import JamendoTrackProvider, LocalTrackLibrary, TrackProviderError, UPLOADS_DIR
 from .models import (
     AnalysisStartRequest,
@@ -31,6 +32,7 @@ app = FastAPI(title="LeRobot Motion Console API", version="0.1.0")
 store = RobotStateStore()
 jamendo_provider = JamendoTrackProvider()
 local_library = LocalTrackLibrary()
+analysis_service = AudioAnalysisService(jamendo_provider=jamendo_provider, local_library=local_library)
 
 app.add_middleware(
     CORSMiddleware,
@@ -104,6 +106,7 @@ def search_tracks(
     except TrackProviderError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    store.remember_tracks(results)
     return TrackSearchResponse(query=q, source=source, results=results)
 
 
@@ -116,7 +119,9 @@ def get_current_track() -> TrackSummary | None:
 async def upload_track(file: UploadFile = File(...)) -> TrackSummary:
     try:
         file.file.seek(0)
-        return local_library.ingest_upload(file.filename, file.content_type, file.file)
+        track = local_library.ingest_upload(file.filename, file.content_type, file.file)
+        store.remember_track(track)
+        return track
     except TrackProviderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
@@ -125,17 +130,52 @@ async def upload_track(file: UploadFile = File(...)) -> TrackSummary:
 
 @app.post("/api/tracks/select", response_model=RobotState)
 def select_track(payload: TrackSelection) -> RobotState:
+    store.remember_track(payload.track)
     return store.select_track(payload)
 
 
 @app.post("/api/analysis/start", response_model=AnalysisStartResponse)
 def start_analysis(payload: AnalysisStartRequest) -> AnalysisStartResponse:
-    return store.queue_analysis(TrackReference(track_id=payload.track_id, source=payload.source))
+    reference = TrackReference(track_id=payload.track_id, source=payload.source)
+    try:
+        known_track = store.known_track(reference)
+        if known_track is None:
+            preferred_track = store.current_track()
+            resolved_track = analysis_service.resolve_track(reference, preferred_track=preferred_track)
+            store.remember_track(resolved_track)
+
+        cached = analysis_service.get_cached_analysis(reference)
+        if cached is not None:
+            status = store.store_analysis(cached)
+            return AnalysisStartResponse(
+                track_id=payload.track_id,
+                source=payload.source,
+                status=status.status,
+                progress=status.progress,
+            )
+
+        store.queue_analysis(reference)
+        store.mark_analysis_processing(reference)
+        analysis = analysis_service.analyze_reference(reference, preferred_track=store.current_track())
+        status = store.store_analysis(analysis)
+        return AnalysisStartResponse(
+            track_id=payload.track_id,
+            source=payload.source,
+            status=status.status,
+            progress=status.progress,
+        )
+    except (TrackProviderError, AnalysisError, ValueError) as exc:
+        status = store.mark_analysis_error(reference, str(exc))
+        raise HTTPException(status_code=400, detail=status.error) from exc
 
 
 @app.get("/api/analysis/{source}/{track_id}/status", response_model=AnalysisStatusResponse)
 def get_analysis_status(source: TrackSource, track_id: str) -> AnalysisStatusResponse:
     try:
+        reference = TrackReference(track_id=track_id, source=source)
+        cached = analysis_service.get_cached_analysis(reference)
+        if cached is not None:
+            return store.store_analysis(cached)
         return store.get_analysis_status(TrackReference(track_id=track_id, source=source))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -145,6 +185,9 @@ def get_analysis_status(source: TrackSource, track_id: str) -> AnalysisStatusRes
 def get_analysis(source: TrackSource, track_id: str) -> AudioAnalysis:
     reference = TrackReference(track_id=track_id, source=source)
     try:
+        cached = analysis_service.get_cached_analysis(reference)
+        if cached is not None:
+            store.store_analysis(cached)
         analysis = store.get_analysis(reference)
         status = store.get_analysis_status(reference)
     except ValueError as exc:
@@ -163,6 +206,9 @@ def get_analysis(source: TrackSource, track_id: str) -> AudioAnalysis:
 def get_choreography(source: TrackSource, track_id: str) -> ChoreographyTimeline:
     reference = TrackReference(track_id=track_id, source=source)
     try:
+        cached = analysis_service.get_cached_analysis(reference)
+        if cached is not None:
+            store.store_analysis(cached)
         choreography = store.get_choreography(reference)
         status = store.get_analysis_status(reference)
     except ValueError as exc:

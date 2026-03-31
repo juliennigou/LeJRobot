@@ -13,26 +13,35 @@ The delivery sequence is:
 
 ## Ticket Stack
 - `#10` Define audio analysis models and API contracts for dual-arm choreography [done]
-- `#11` Add local audio upload and analyzable track source pipeline
-- `#12` Implement backend audio analysis pipeline with librosa and caching
+- `#11` Add local audio upload and analyzable track source pipeline [done]
+- `#12` Implement backend audio analysis pipeline with librosa and caching [done]
 - `#13` Generate dual-arm choreography timelines from analysis data
 - `#14` Build waveform-first music console on the frontend
 - `#15` Add spectrogram, rhythm, structure, and track-info analysis tabs
 - `#16` Replace synthetic backend motion data with real audio analysis state
 - `#17` Prepare dual-arm LeRobot adapter and safety envelope
+- `#19` Add GitHub Actions CI for backend, frontend, and smoke validation
+- `#20` Dockerize frontend and backend with docker compose startup
 
 ## Current Status
-- Current PR target: `#11`
+- Current PR target: `#15`
 - Current backend state:
   - Search and track selection exist
-  - Local upload and persistent local track metadata are being added
-  - Track motion profile is still synthetic
+  - Local upload and persistent local track metadata are available
+  - Real audio analysis is available behind `/api/analysis/*` for local uploads and Jamendo-backed tracks
+  - Analysis results are cached on disk under `.data/analysis-cache/`
+  - Choreography output is present but still heuristic and will be refined in `#13`
   - Spectrum and dance state are still synthetic
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
-  - Minimal local upload/select flow is being added without redesigning the page
-  - Analysis tabs are still placeholder-driven
+  - Minimal local upload/select flow exists without redesigning the page
+  - Analysis tabs are now being wired to the real backend analysis payload
+
+## Workflow Rule
+- Each ticket must ship from a feature branch through a pull request.
+- Direct pushes to `main` should be reserved for exceptional cases only.
+- CI must pass before merge: backend compile + smoke test, frontend build, and Docker compose smoke startup.
 
 ## Working Decisions
 - Use Python backend as the source of truth for BPM, beats, sections, and choreography timeline.
@@ -40,6 +49,7 @@ The delivery sequence is:
 - Keep current search/select compatibility while expanding schema.
 - Do not fake real analysis results in contract tickets. Contract endpoints may exist before the implementation behind them.
 - Persist local upload metadata under `.data/uploads/index.json` and keep uploaded media files under `.data/uploads/files/`.
+- Persist computed audio analysis under `.data/analysis-cache/json/` and remote source audio under `.data/analysis-cache/audio/`.
 
 ## PR Order
 1. `#10` Data models and API contracts

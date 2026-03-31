@@ -3,7 +3,7 @@
 ## Scope
 This document tracks the canonical Phase 1 API contracts for music analysis and dual-arm-ready choreography.
 
-These contracts are intentionally ahead of the implementation. The schema is stable first; the real analysis and choreography payloads land in follow-up tickets.
+These contracts started ahead of the implementation. The real backend analysis payloads are now live, while choreography quality and frontend integration still land in follow-up tickets.
 
 ## Track Endpoints
 
@@ -130,4 +130,6 @@ These contracts are intentionally ahead of the implementation. The schema is sta
 - `motion_profile` remains present for compatibility with the existing UI.
 - `analysis_status` is now part of `TrackSummary`.
 - Local uploads should be selectable through the same UI card flow as Jamendo tracks.
-- Real analysis output is intentionally not faked by these endpoints. Follow-up tickets will populate `AudioAnalysis` and `ChoreographyTimeline`.
+- `POST /api/analysis/start` now performs the analysis synchronously for Phase 1 while still updating the stored status lifecycle (`queued` -> `processing` -> `ready|error`).
+- Analysis results are cached on disk under `.data/analysis-cache/` keyed by `source + track_id`.
+- `AudioAnalysis.choreography` currently contains a basic beat/section-derived cue timeline. Richer dual-arm choreography generation is tracked separately in `#13`.
