@@ -234,7 +234,16 @@ class AudioAnalysisService:
         )
         sections = self._segment_sections(duration_seconds, energy.rms, energy.onset_strength, frame_hz)
         tempo_confidence = self._tempo_confidence(tempo, beat_times, duration_seconds, onset_down, frame_hz)
-        choreography = self._build_choreography(track, beat_times, downbeat_times, energy.rms, bands, sections, frame_hz)
+        choreography = self._build_choreography(
+            track,
+            beat_times,
+            downbeat_times,
+            energy.rms,
+            energy.onset_strength,
+            bands,
+            sections,
+            frame_hz,
+        )
 
         return AudioAnalysis(
             track_id=track.track_id,
@@ -338,6 +347,7 @@ class AudioAnalysisService:
         beat_times: list[float],
         downbeat_times: list[float],
         rms: list[float],
+        onset_strength: list[float],
         bands: BandEnvelope,
         sections: list[SongSection],
         frame_hz: float,
@@ -349,25 +359,39 @@ class AudioAnalysisService:
 
         for beat_index, beat_time in enumerate(beat_times):
             rounded_time = round(beat_time, 3)
+            section = self._section_at_time(sections, beat_time)
             intensity = self._feature_at_time(rms, frame_hz, beat_time)
+            onset = self._feature_at_time(onset_strength, frame_hz, beat_time)
             low = self._feature_at_time(bands.low, frame_hz, beat_time)
+            mid = self._feature_at_time(bands.mid, frame_hz, beat_time)
             high = self._feature_at_time(bands.high, frame_hz, beat_time)
             is_downbeat = rounded_time in downbeat_set
-            pose_family = self._pose_for_features(intensity, low, high, is_downbeat)
+            base_pose = self._pose_for_features(intensity, low, high, is_downbeat)
             kind = MotionCueKind.DOWNBEAT if is_downbeat else MotionCueKind.BEAT
-            amplitude = round(min(1.0, intensity * 0.7 + low * 0.3), 4)
-            speed = round(min(1.0, 0.45 + high * 0.45 + intensity * 0.1), 4)
+            amplitude = round(min(1.0, intensity * 0.58 + low * 0.28 + onset * 0.14), 4)
+            speed = round(min(1.0, 0.38 + high * 0.34 + mid * 0.18 + onset * 0.1), 4)
+            strategy = self._section_strategy(section.label if section else SectionLabel.UNKNOWN, beat_index, is_downbeat)
+
+            if strategy["skip"]:
+                continue
+
+            left_pose, right_pose = self._arm_pose_pair(
+                base_pose=base_pose,
+                label=section.label if section else SectionLabel.UNKNOWN,
+                beat_index=beat_index,
+                is_downbeat=is_downbeat,
+            )
 
             global_cues.append(
                 MotionCue(
                     time=rounded_time,
                     kind=kind,
                     intensity=round(intensity, 4),
-                    pose_family=pose_family,
+                    pose_family=base_pose,
                     amplitude=amplitude,
                     speed=speed,
-                    symmetry_role=SymmetryRole.UNISON,
-                    notes="song pulse",
+                    symmetry_role=strategy["global_role"],
+                    notes=f"song pulse {section.label.value if section else 'unknown'}",
                 )
             )
             arm_left_cues.append(
@@ -375,11 +399,11 @@ class AudioAnalysisService:
                     time=rounded_time,
                     kind=kind,
                     intensity=round(intensity, 4),
-                    pose_family=pose_family,
-                    amplitude=amplitude,
-                    speed=speed,
-                    symmetry_role=SymmetryRole.LEAD if beat_index % 2 == 0 else SymmetryRole.MIRROR,
-                    notes="left arm pulse",
+                    pose_family=left_pose,
+                    amplitude=round(min(1.0, amplitude * strategy["left_amplitude"]), 4),
+                    speed=round(min(1.0, speed * strategy["left_speed"]), 4),
+                    symmetry_role=strategy["left_role"],
+                    notes=strategy["left_note"],
                 )
             )
             arm_right_cues.append(
@@ -387,11 +411,58 @@ class AudioAnalysisService:
                     time=rounded_time,
                     kind=kind,
                     intensity=round(intensity, 4),
+                    pose_family=right_pose,
+                    amplitude=round(min(1.0, amplitude * strategy["right_amplitude"]), 4),
+                    speed=round(min(1.0, speed * strategy["right_speed"]), 4),
+                    symmetry_role=strategy["right_role"],
+                    notes=strategy["right_note"],
+                )
+            )
+
+        accent_times = self._accent_times(onset_strength, frame_hz, beat_times)
+        for accent_index, accent_time in enumerate(accent_times):
+            section = self._section_at_time(sections, accent_time)
+            intensity = self._feature_at_time(onset_strength, frame_hz, accent_time)
+            high = self._feature_at_time(bands.high, frame_hz, accent_time)
+            pose_family = PoseFamily.PUNCH if high >= 0.5 else PoseFamily.SWEEP
+            rounded_time = round(accent_time, 3)
+            global_cues.append(
+                MotionCue(
+                    time=rounded_time,
+                    kind=MotionCueKind.ACCENT,
+                    intensity=round(intensity, 4),
                     pose_family=pose_family,
-                    amplitude=amplitude,
-                    speed=speed,
-                    symmetry_role=SymmetryRole.FOLLOW if beat_index % 2 == 0 else SymmetryRole.MIRROR,
-                    notes="right arm pulse",
+                    amplitude=round(min(1.0, 0.3 + intensity * 0.7), 4),
+                    speed=round(min(1.0, 0.55 + high * 0.45), 4),
+                    symmetry_role=SymmetryRole.CONTRAST,
+                    notes=f"accent {section.label.value if section else 'unknown'}",
+                )
+            )
+
+            accent_left_role = SymmetryRole.LEAD if accent_index % 2 == 0 else SymmetryRole.FOLLOW
+            accent_right_role = SymmetryRole.FOLLOW if accent_index % 2 == 0 else SymmetryRole.LEAD
+            arm_left_cues.append(
+                MotionCue(
+                    time=rounded_time,
+                    kind=MotionCueKind.ACCENT,
+                    intensity=round(intensity, 4),
+                    pose_family=pose_family,
+                    amplitude=round(min(1.0, 0.28 + intensity * 0.62), 4),
+                    speed=round(min(1.0, 0.5 + high * 0.4), 4),
+                    symmetry_role=accent_left_role,
+                    notes="left accent",
+                )
+            )
+            arm_right_cues.append(
+                MotionCue(
+                    time=rounded_time,
+                    kind=MotionCueKind.ACCENT,
+                    intensity=round(intensity, 4),
+                    pose_family=PoseFamily.FLOAT if pose_family == PoseFamily.SWEEP else PoseFamily.SWEEP,
+                    amplitude=round(min(1.0, 0.22 + intensity * 0.54), 4),
+                    speed=round(min(1.0, 0.46 + high * 0.32), 4),
+                    symmetry_role=accent_right_role,
+                    notes="right accent",
                 )
             )
 
@@ -410,7 +481,26 @@ class AudioAnalysisService:
             )
             global_cues.append(cue)
 
+            if section.label == SectionLabel.BREAK:
+                hold_time = round(section.start_seconds, 3)
+                hold_intensity = round(max(0.18, section.energy_mean * 0.8), 4)
+                hold_cue = MotionCue(
+                    time=hold_time,
+                    kind=MotionCueKind.HOLD,
+                    intensity=hold_intensity,
+                    pose_family=PoseFamily.FLOAT,
+                    amplitude=round(min(1.0, 0.18 + section.energy_mean * 0.4), 4),
+                    speed=0.18,
+                    symmetry_role=SymmetryRole.CONTRAST,
+                    notes="break hold",
+                )
+                global_cues.append(hold_cue)
+                arm_left_cues.append(hold_cue.model_copy(update={"symmetry_role": SymmetryRole.LEAD, "notes": "left hold"}))
+                arm_right_cues.append(hold_cue.model_copy(update={"symmetry_role": SymmetryRole.FOLLOW, "notes": "right hold"}))
+
         global_cues.sort(key=lambda cue: (cue.time, cue.kind.value))
+        arm_left_cues.sort(key=lambda cue: (cue.time, cue.kind.value))
+        arm_right_cues.sort(key=lambda cue: (cue.time, cue.kind.value))
         return ChoreographyTimeline(
             track_id=track.track_id,
             source=track.source,
@@ -419,6 +509,156 @@ class AudioAnalysisService:
             arm_left_cues=arm_left_cues,
             arm_right_cues=arm_right_cues,
         )
+
+    def _accent_times(self, onset_strength: list[float], frame_hz: float, beat_times: list[float]) -> list[float]:
+        if not onset_strength or frame_hz <= 0.0:
+            return []
+
+        beat_times = sorted(beat_times)
+        threshold = max(0.56, self._mean(onset_strength) + 0.18)
+        accent_times: list[float] = []
+
+        for index in range(1, len(onset_strength) - 1):
+            value = onset_strength[index]
+            if value < threshold:
+                continue
+            if value < onset_strength[index - 1] or value <= onset_strength[index + 1]:
+                continue
+
+            time_seconds = index / frame_hz
+            if any(abs(time_seconds - beat_time) <= 0.09 for beat_time in beat_times):
+                continue
+
+            accent_times.append(round(time_seconds, 3))
+            if len(accent_times) >= 24:
+                break
+
+        return accent_times
+
+    def _section_at_time(self, sections: list[SongSection], time_seconds: float) -> SongSection | None:
+        for section in sections:
+            if section.start_seconds <= time_seconds < section.end_seconds:
+                return section
+        return sections[-1] if sections else None
+
+    def _section_strategy(self, label: SectionLabel, beat_index: int, is_downbeat: bool) -> dict[str, object]:
+        strategy = {
+            "global_role": SymmetryRole.UNISON,
+            "left_role": SymmetryRole.LEAD,
+            "right_role": SymmetryRole.FOLLOW,
+            "left_amplitude": 1.0,
+            "right_amplitude": 0.92,
+            "left_speed": 1.0,
+            "right_speed": 0.98,
+            "left_note": "left arm pulse",
+            "right_note": "right arm pulse",
+            "skip": False,
+        }
+
+        if label == SectionLabel.INTRO:
+            strategy.update(
+                {
+                    "global_role": SymmetryRole.MIRROR,
+                    "left_role": SymmetryRole.LEAD if beat_index % 4 < 2 else SymmetryRole.FOLLOW,
+                    "right_role": SymmetryRole.FOLLOW if beat_index % 4 < 2 else SymmetryRole.LEAD,
+                    "left_amplitude": 0.72,
+                    "right_amplitude": 0.64,
+                    "left_speed": 0.82,
+                    "right_speed": 0.78,
+                    "left_note": "intro glide",
+                    "right_note": "intro glide",
+                }
+            )
+        elif label == SectionLabel.CHORUS:
+            strategy.update(
+                {
+                    "global_role": SymmetryRole.UNISON if is_downbeat else SymmetryRole.MIRROR,
+                    "left_role": SymmetryRole.UNISON if is_downbeat else SymmetryRole.MIRROR,
+                    "right_role": SymmetryRole.UNISON if is_downbeat else SymmetryRole.MIRROR,
+                    "left_amplitude": 1.14,
+                    "right_amplitude": 1.08,
+                    "left_speed": 1.08,
+                    "right_speed": 1.04,
+                    "left_note": "chorus hit",
+                    "right_note": "chorus hit",
+                }
+            )
+        elif label == SectionLabel.BRIDGE:
+            strategy.update(
+                {
+                    "global_role": SymmetryRole.CONTRAST,
+                    "left_role": SymmetryRole.CONTRAST,
+                    "right_role": SymmetryRole.CONTRAST,
+                    "left_amplitude": 0.92,
+                    "right_amplitude": 0.78,
+                    "left_speed": 1.06,
+                    "right_speed": 0.86,
+                    "left_note": "bridge contrast",
+                    "right_note": "bridge counterline",
+                }
+            )
+        elif label == SectionLabel.BREAK:
+            strategy.update(
+                {
+                    "global_role": SymmetryRole.CONTRAST,
+                    "left_role": SymmetryRole.LEAD,
+                    "right_role": SymmetryRole.FOLLOW,
+                    "left_amplitude": 0.58,
+                    "right_amplitude": 0.46,
+                    "left_speed": 0.72,
+                    "right_speed": 0.64,
+                    "left_note": "break accent",
+                    "right_note": "break support",
+                    "skip": not is_downbeat and beat_index % 2 == 1,
+                }
+            )
+        elif label == SectionLabel.OUTRO:
+            strategy.update(
+                {
+                    "global_role": SymmetryRole.MIRROR,
+                    "left_role": SymmetryRole.FOLLOW if beat_index % 4 < 2 else SymmetryRole.LEAD,
+                    "right_role": SymmetryRole.LEAD if beat_index % 4 < 2 else SymmetryRole.FOLLOW,
+                    "left_amplitude": 0.6,
+                    "right_amplitude": 0.56,
+                    "left_speed": 0.74,
+                    "right_speed": 0.7,
+                    "left_note": "outro release",
+                    "right_note": "outro release",
+                }
+            )
+        else:
+            strategy.update(
+                {
+                    "global_role": SymmetryRole.CONTRAST if beat_index % 2 else SymmetryRole.UNISON,
+                    "left_role": SymmetryRole.LEAD if beat_index % 2 == 0 else SymmetryRole.FOLLOW,
+                    "right_role": SymmetryRole.FOLLOW if beat_index % 2 == 0 else SymmetryRole.LEAD,
+                    "left_amplitude": 1.0,
+                    "right_amplitude": 0.9,
+                    "left_speed": 0.98,
+                    "right_speed": 0.94,
+                    "left_note": "verse lead",
+                    "right_note": "verse response",
+                }
+            )
+
+        return strategy
+
+    def _arm_pose_pair(
+        self,
+        base_pose: PoseFamily,
+        label: SectionLabel,
+        beat_index: int,
+        is_downbeat: bool,
+    ) -> tuple[PoseFamily, PoseFamily]:
+        if label == SectionLabel.BRIDGE:
+            return (PoseFamily.SWEEP, PoseFamily.FLOAT) if beat_index % 2 == 0 else (PoseFamily.FLOAT, PoseFamily.SWEEP)
+        if label == SectionLabel.BREAK:
+            return (PoseFamily.FLOAT, PoseFamily.GROOVE if is_downbeat else PoseFamily.FLOAT)
+        if label in {SectionLabel.INTRO, SectionLabel.OUTRO}:
+            return (PoseFamily.FLOAT, PoseFamily.SWEEP if is_downbeat else PoseFamily.FLOAT)
+        if label == SectionLabel.CHORUS:
+            return (PoseFamily.PUNCH if is_downbeat else base_pose, PoseFamily.PUNCH if is_downbeat else base_pose)
+        return (base_pose, PoseFamily.SWEEP if beat_index % 2 else base_pose)
 
     def _band_energy(self, stft, freqs, minimum: float | None = None, maximum: float | None = None):
         mask = np.ones_like(freqs, dtype=bool)
