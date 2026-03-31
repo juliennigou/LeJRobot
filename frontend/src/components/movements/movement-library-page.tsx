@@ -89,9 +89,8 @@ export function MovementLibraryPage({
           </div>
           <CardTitle className="text-3xl text-white">Single-Arm Movement Studio</CardTitle>
           <CardDescription className="max-w-3xl text-slate-300">
-            Start with reusable motion primitives before binding everything to music. The first movement is a
-            calibrated `wave` built from one shared oscillator, progressive phase delays, and a stronger wrist
-            signature than shoulder travel.
+            Start with reusable motion primitives before binding everything to music. The library now includes the
+            fitted `wave` plus a simpler `wrist_lean` built around upward wrist flex, shoulder pan, and a hand twist.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -139,7 +138,7 @@ export function MovementLibraryPage({
           <CardHeader>
             <CardTitle className="text-white">6 Joint Roles</CardTitle>
             <CardDescription className="text-slate-300">
-              The wave is designed as layered motion: pose joints first, expression joints last.
+              Build movements from a small number of readable joint roles instead of fighting every servo at once.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
@@ -158,8 +157,8 @@ export function MovementLibraryPage({
           <CardHeader>
             <CardTitle className="text-white">Available Movements</CardTitle>
             <CardDescription className="text-slate-300">
-              Movements are high-level primitives. `wave` is generated from a global oscillator with per-joint amplitude
-              and phase offsets.
+              Movements are high-level primitives. Some are layered and expressive like `wave`; others stay deliberately
+              simple, like the new `wrist_lean`.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">

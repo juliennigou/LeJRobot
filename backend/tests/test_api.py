@@ -335,10 +335,13 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(movements.status_code, 200)
         movement_payload = movements.json()
         wave_definition = next(item for item in movement_payload["movements"] if item["movement_id"] == "wave")
+        wrist_lean_definition = next(item for item in movement_payload["movements"] if item["movement_id"] == "wrist_lean")
         self.assertEqual(movement_payload["active"]["status"], "idle")
         self.assertEqual(wave_definition["controller"], "oscillator")
         self.assertEqual(wave_definition["default_preset_id"], "normal")
         self.assertEqual(len(wave_definition["presets"]), 3)
+        self.assertEqual(wrist_lean_definition["controller"], "oscillator")
+        self.assertEqual(wrist_lean_definition["default_preset_id"], "normal")
 
         run_wave = self.client.post(
             "/api/movements/run",
