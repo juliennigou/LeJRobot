@@ -124,6 +124,18 @@ source .venv/bin/activate
 python scripts/demo_wave_motion.py --preset normal --format json
 ```
 
+Manual wave recording workflow:
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/record_wave_demo.py --arm-id thejn_leader_arm --label manual-wave-01
+python scripts/fit_wave_from_recordings.py ../.data/movements/recordings/<recording>.json --print-preset
+python scripts/replay_wave_demo.py ../.data/movements/recordings/<recording>.json --arm-id thejn_follower_arm --live
+```
+
+This path is intended for collecting manual demonstrations first, replaying them safely, and then fitting a cleaner wave preset from observation before considering any learned model.
+
 Install or refresh backend dependencies after pulling:
 
 ```bash
