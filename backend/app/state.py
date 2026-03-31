@@ -14,11 +14,13 @@ from .models import (
     AudioAnalysis,
     ChoreographyTimeline,
     DanceMode,
+    MotionCue,
     PulseUpdate,
     RobotConfig,
     RobotState,
     SceneName,
     ServoState,
+    SymmetryRole,
     ServoUpdate,
     TrackReference,
     TrackSummary,
@@ -133,21 +135,31 @@ class RobotStateStore:
         if self.transport.playing:
             self.transport.position_seconds += delta
 
+        analysis = self.current_analysis()
+        choreography = self.current_choreography()
+        self._sync_transport_from_analysis(analysis)
+
         beat = self.transport.position_seconds * max(self.transport.bpm, 1) / 60.0
         beat_phase = beat * math.tau
 
         for index, servo in enumerate(self.servos):
             pulse = math.sin(beat_phase + index * 0.75)
             accent = math.sin(beat_phase * 0.5 + index)
+            analysis_driver = self._servo_driver(index, analysis, choreography)
+            modulation = analysis_driver["modulation"]
+            intensity = analysis_driver["intensity"]
+            motion_phase = analysis_driver["motion_phase"]
 
             if self.mode == DanceMode.PULSE and servo.torque_enabled:
                 scene_target = SCENES.get(self.scene, SCENES[SceneName.IDLE])[servo.name]
-                servo.target_angle = scene_target + pulse * (8 + 18 * self.transport.energy)
-                servo.motion_phase = "accent"
+                base_pulse = pulse if analysis is None else modulation
+                servo.target_angle = scene_target + base_pulse * (8 + 18 * self.transport.energy)
+                servo.motion_phase = motion_phase
             elif self.mode == DanceMode.AUTONOMOUS and servo.torque_enabled:
                 scene_target = SCENES.get(self.scene, SCENES[SceneName.IDLE])[servo.name]
-                servo.target_angle = scene_target + accent * (5 + 12 * self.transport.energy)
-                servo.motion_phase = "ramping"
+                base_accent = accent if analysis is None else modulation
+                servo.target_angle = scene_target + base_accent * (5 + 12 * intensity)
+                servo.motion_phase = motion_phase
             elif abs(servo.target_angle - servo.angle) > 3:
                 servo.motion_phase = "ramping"
             else:
@@ -155,11 +167,17 @@ class RobotStateStore:
 
             blend = 0.18 if servo.torque_enabled else 0.05
             servo.angle += (servo.target_angle - servo.angle) * blend
-            servo.load_pct = min(100.0, abs(servo.target_angle - servo.angle) * 1.35 + self.transport.energy * 28)
+            servo.load_pct = min(100.0, abs(servo.target_angle - servo.angle) * 1.35 + intensity * 28)
             servo.temperature_c = 31.5 + servo.load_pct * 0.11
 
-        self.latency_ms = 12 + int((math.sin(beat_phase) + 1) * 7)
-        self.sync_quality = max(72, 99 - int(self.transport.energy * 8) - int(abs(math.cos(beat_phase)) * 6))
+        if analysis is not None:
+            confidence_penalty = int((1.0 - analysis.tempo_confidence) * 12)
+            activity_penalty = int(abs(0.5 - self.transport.energy) * 10)
+            self.latency_ms = max(8, 10 + confidence_penalty + activity_penalty)
+            self.sync_quality = max(70, 100 - confidence_penalty - int((1.0 - self.transport.energy) * 8))
+        else:
+            self.latency_ms = 12 + int((math.sin(beat_phase) + 1) * 7)
+            self.sync_quality = max(72, 99 - int(self.transport.energy * 8) - int(abs(math.cos(beat_phase)) * 6))
 
     def _set_scene_targets(self, scene: SceneName) -> None:
         self.scene = scene
@@ -233,6 +251,10 @@ class RobotStateStore:
         )
 
     def _build_spectrum(self) -> list[int]:
+        analysis = self.current_analysis()
+        if analysis is not None:
+            return self._analysis_spectrum(analysis)
+
         base = self.transport.energy or 0.25
         beat = self.transport.position_seconds * self.transport.bpm / 60.0
         values: list[int] = []
@@ -242,6 +264,16 @@ class RobotStateStore:
             height = 28 + base * 46 + wave * 18 + sparkle * 10
             values.append(max(18, min(100, int(height))))
         return values
+
+    def _analysis_spectrum(self, analysis: AudioAnalysis) -> list[int]:
+        frame_index = self._analysis_frame_index(analysis)
+        bars: list[int] = []
+        series_groups = [analysis.bands.low, analysis.bands.mid, analysis.bands.high]
+        for index in range(18):
+            group = series_groups[index % len(series_groups)]
+            value = self._window_mean(group, frame_index, radius=2)
+            bars.append(max(18, min(100, int(round(18 + value * 82)))))
+        return bars
 
     def set_mode(self, mode: DanceMode) -> RobotState:
         self.mode = mode
@@ -318,6 +350,10 @@ class RobotStateStore:
         if payload.autoplay:
             self.mode = DanceMode.AUTONOMOUS
 
+        analysis = self.analysis_results.get(key)
+        if analysis is not None:
+            self._sync_transport_from_analysis(analysis)
+
         return self.snapshot()
 
     def current_track(self):
@@ -329,6 +365,18 @@ class RobotStateStore:
         if status is not None:
             track.analysis_status = status.status
         return track
+
+    def current_analysis(self) -> AudioAnalysis | None:
+        track = self.transport.current_track
+        if track is None:
+            return None
+        return self.analysis_results.get(self._track_key(track.source, track.track_id))
+
+    def current_choreography(self) -> ChoreographyTimeline | None:
+        track = self.transport.current_track
+        if track is None:
+            return None
+        return self.choreography_results.get(self._track_key(track.source, track.track_id))
 
     def queue_analysis(self, payload: TrackReference) -> AnalysisStartResponse:
         self.analysis_results.pop(self._track_key(payload.source, payload.track_id), None)
@@ -408,6 +456,9 @@ class RobotStateStore:
         )
         self.analysis_statuses[key] = status
         self._sync_current_track_status(TrackReference(track_id=analysis.track_id, source=analysis.source), status.status)
+        current_track = self.transport.current_track
+        if current_track and current_track.track_id == analysis.track_id and current_track.source == analysis.source:
+            self._sync_transport_from_analysis(analysis)
         return status
 
     def mark_analysis_error(self, payload: TrackReference, message: str) -> AnalysisStatusResponse:
@@ -431,3 +482,81 @@ class RobotStateStore:
         if not analysis.energy.rms:
             return 0.0
         return sum(analysis.energy.rms) / len(analysis.energy.rms)
+
+    def _sync_transport_from_analysis(self, analysis: AudioAnalysis | None) -> None:
+        if analysis is None:
+            return
+        self.transport.bpm = max(40, min(220, int(round(analysis.bpm or self.transport.bpm))))
+        frame_index = self._analysis_frame_index(analysis)
+        self.transport.energy = round(self._series_value(analysis.energy.rms, frame_index), 3)
+
+    def _analysis_frame_index(self, analysis: AudioAnalysis) -> int:
+        if analysis.energy.frame_hz <= 0 or not analysis.energy.rms:
+            return 0
+        raw_index = int(self.transport.position_seconds * analysis.energy.frame_hz)
+        return max(0, min(len(analysis.energy.rms) - 1, raw_index))
+
+    def _series_value(self, values: list[float], index: int) -> float:
+        if not values:
+            return 0.0
+        safe_index = max(0, min(len(values) - 1, index))
+        return float(values[safe_index])
+
+    def _window_mean(self, values: list[float], index: int, radius: int) -> float:
+        if not values:
+            return 0.0
+        start = max(0, index - radius)
+        end = min(len(values), index + radius + 1)
+        window = values[start:end] or [values[max(0, min(len(values) - 1, index))]]
+        return sum(window) / len(window)
+
+    def _servo_driver(
+        self,
+        servo_index: int,
+        analysis: AudioAnalysis | None,
+        choreography: ChoreographyTimeline | None,
+    ) -> dict[str, float | str]:
+        if analysis is None:
+            return {
+                "modulation": math.sin(self.transport.position_seconds + servo_index * 0.7),
+                "intensity": self.transport.energy,
+                "motion_phase": "ramping",
+            }
+
+        frame_index = self._analysis_frame_index(analysis)
+        low = self._series_value(analysis.bands.low, frame_index)
+        mid = self._series_value(analysis.bands.mid, frame_index)
+        high = self._series_value(analysis.bands.high, frame_index)
+        intensity = min(1.0, max(0.08, self._series_value(analysis.energy.rms, frame_index)))
+        cue = self._active_cue(servo_index, choreography)
+        cue_intensity = cue.intensity if cue is not None else intensity
+        role_phase = 1.0
+        if cue is not None and cue.symmetry_role in {SymmetryRole.MIRROR, SymmetryRole.CONTRAST}:
+            role_phase = -1.0 if servo_index % 2 else 1.0
+        modulation = role_phase * (
+            math.sin(self.transport.position_seconds * (1.2 + mid * 1.8) + servo_index * 0.8) * (0.25 + low * 0.75)
+            + math.cos(self.transport.position_seconds * (2.1 + high * 2.3) + servo_index * 0.45) * 0.18
+        )
+
+        motion_phase = "steady"
+        if cue is not None and cue.kind.value in {"accent", "downbeat", "section_change"}:
+            motion_phase = "accent"
+        elif cue is not None or cue_intensity > 0.14:
+            motion_phase = "ramping"
+
+        return {
+            "modulation": max(-1.0, min(1.0, modulation)),
+            "intensity": min(1.0, max(intensity, cue_intensity)),
+            "motion_phase": motion_phase,
+        }
+
+    def _active_cue(self, servo_index: int, choreography: ChoreographyTimeline | None) -> MotionCue | None:
+        if choreography is None:
+            return None
+        cues = choreography.arm_left_cues if servo_index % 2 == 0 else choreography.arm_right_cues
+        current_time = self.transport.position_seconds
+        window = 0.32
+        for cue in reversed(cues):
+            if abs(cue.time - current_time) <= window:
+                return cue
+        return None

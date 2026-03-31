@@ -74,6 +74,15 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertGreater(len(payload["waveform"]["peaks"]), 0)
         self.assertGreaterEqual(len(payload["sections"]), 3)
 
+        state = self.client.get("/api/state")
+        self.assertEqual(state.status_code, 200)
+        state_payload = state.json()
+        self.assertEqual(state_payload["transport"]["current_track"]["analysis_status"], "ready")
+        self.assertEqual(state_payload["transport"]["bpm"], int(round(payload["bpm"])))
+        self.assertAlmostEqual(state_payload["transport"]["energy"], payload["energy"]["rms"][0], places=3)
+        expected_spectrum = self._expected_spectrum_prefix(payload)
+        self.assertEqual(state_payload["spectrum"][:3], expected_spectrum)
+
         choreography = self.client.get(f"/api/choreography/{track['source']}/{track['track_id']}")
         self.assertEqual(choreography.status_code, 200)
         choreography_payload = choreography.json()
@@ -91,6 +100,19 @@ class ApiSmokeTest(unittest.TestCase):
 
         cache_files = list((Path(self.tempdir.name) / "analysis-cache" / "json" / "local").glob("*.json"))
         self.assertTrue(cache_files)
+
+    def _expected_spectrum_prefix(self, analysis_payload: dict[str, object]) -> list[int]:
+        def window_mean(values: list[float]) -> float:
+            window = values[:3] if len(values) >= 3 else values
+            return sum(window) / len(window)
+
+        low = window_mean(analysis_payload["bands"]["low"])
+        mid = window_mean(analysis_payload["bands"]["mid"])
+        high = window_mean(analysis_payload["bands"]["high"])
+        return [self._spectrum_bar(low), self._spectrum_bar(mid), self._spectrum_bar(high)]
+
+    def _spectrum_bar(self, value: float) -> int:
+        return max(18, min(100, int(round(18 + value * 82))))
 
     def _fixture_wav(self) -> bytes:
         sample_rate = 22050

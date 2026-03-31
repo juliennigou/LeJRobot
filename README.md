@@ -96,6 +96,7 @@ Phase 1 now includes a real backend audio-analysis pipeline.
 - Results are cached under `.data/analysis-cache/`
 - Local uploads are analyzed directly from `.data/uploads/files/`
 - Remote Jamendo tracks are downloaded into the analysis cache before decoding
+- `/api/state` now reflects cached analysis data when available, instead of relying only on synthetic transport/spectrum placeholders
 
 Install or refresh backend dependencies after pulling:
 
@@ -146,4 +147,4 @@ Direct pushes to `main` should be avoided for feature work. The GitHub Actions w
 
 ## Next step
 
-The next engineering step is to improve the choreography layer from the new audio analysis output, wire that analysis into the music UI tabs, and only then swap the mock `RobotStateStore` motion engine for real LeRobot / Feetech hardware adapters.
+The next engineering step is to finish the waveform-first frontend and the richer spectrogram/rhythm/structure tabs, then move into dual-arm LeRobot adapter and safety work.

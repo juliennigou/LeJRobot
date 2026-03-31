@@ -18,7 +18,7 @@ The delivery sequence is:
 - `#13` Generate dual-arm choreography timelines from analysis data [done]
 - `#14` Build waveform-first music console on the frontend [done]
 - `#15` Add spectrogram, rhythm, structure, and track-info analysis tabs [done]
-- `#16` Replace synthetic backend motion data with real audio analysis state
+- `#16` Replace synthetic backend motion data with real audio analysis state [done]
 - `#17` Prepare dual-arm LeRobot adapter and safety envelope
 - `#19` Add GitHub Actions CI for backend, frontend, and smoke validation
 - `#20` Dockerize frontend and backend with docker compose startup
@@ -30,8 +30,8 @@ The delivery sequence is:
   - Local upload and persistent local track metadata are available
   - Real audio analysis is available behind `/api/analysis/*` for local uploads and Jamendo-backed tracks
   - Analysis results are cached on disk under `.data/analysis-cache/`
-  - Dual-arm choreography output is section-aware and timeline-driven
-  - Spectrum and dance state are still synthetic until `#16`
+  - Dual-arm choreography output is section-aware and exposes left/right arm cue channels
+  - `/api/state` now derives transport BPM, energy, spectrum bars, and autonomous servo modulation from cached analysis when it exists
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
