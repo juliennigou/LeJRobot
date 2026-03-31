@@ -21,6 +21,15 @@ WAVE_NEUTRAL_POSE = {
     "gripper": 8.0,
 }
 
+WRIST_LEAN_NEUTRAL_POSE = {
+    "shoulder_pan": 8.0,
+    "shoulder_lift": 10.0,
+    "elbow_flex": -24.0,
+    "wrist_flex": 36.0,
+    "wrist_roll": 0.0,
+    "gripper": 8.0,
+}
+
 
 def _wave_profiles(scale: float) -> list[MovementJointProfile]:
     return [
@@ -48,6 +57,42 @@ def _wave_profiles(scale: float) -> list[MovementJointProfile]:
             base_angle=7.99,
             amplitude=1.81 * scale,
             phase_delay_radians=1.46,
+        ),
+    ]
+
+
+def _wrist_lean_profiles(scale: float) -> list[MovementJointProfile]:
+    return [
+        MovementJointProfile(joint_name="shoulder_pan", base_angle=8.0, amplitude=8.0 * scale, phase_delay_radians=0.0),
+        MovementJointProfile(
+            joint_name="shoulder_lift",
+            base_angle=10.0,
+            amplitude=2.5 * scale,
+            phase_delay_radians=0.18,
+        ),
+        MovementJointProfile(
+            joint_name="elbow_flex",
+            base_angle=-24.0,
+            amplitude=3.0 * scale,
+            phase_delay_radians=0.34,
+        ),
+        MovementJointProfile(
+            joint_name="wrist_flex",
+            base_angle=36.0,
+            amplitude=14.0 * scale,
+            phase_delay_radians=0.58,
+        ),
+        MovementJointProfile(
+            joint_name="wrist_roll",
+            base_angle=0.0,
+            amplitude=18.0 * scale,
+            phase_delay_radians=0.92,
+        ),
+        MovementJointProfile(
+            joint_name="gripper",
+            base_angle=8.0,
+            amplitude=4.0 * scale,
+            phase_delay_radians=1.12,
         ),
     ]
 
@@ -88,9 +133,23 @@ WAVE_PRESETS = {
     ),
 }
 
+WRIST_LEAN_PRESETS = {
+    "normal": MovementPreset(
+        preset_id="normal",
+        label="Normal",
+        summary="Simple wrist-led lean: wrist flex lifts upward, shoulder pan presents the arm, and the hand rotates for a clear finish.",
+        frequency_hz=0.8,
+        cycles=2,
+        amplitude_scale=1.0,
+        softness=0.76,
+        asymmetry=0.0,
+        joint_profiles=_wrist_lean_profiles(1.0),
+    ),
+}
+
 
 @dataclass(frozen=True)
-class WaveRuntimeConfig:
+class OscillatorRuntimeConfig:
     movement_id: str
     preset_id: str
     frequency_hz: float
@@ -113,8 +172,8 @@ class MotionGenerator(Protocol):
     def sample(self, elapsed: float) -> dict[str, float]: ...
 
 
-class WaveMotionGenerator:
-    def __init__(self, config: WaveRuntimeConfig) -> None:
+class OscillatorMotionGenerator:
+    def __init__(self, config: OscillatorRuntimeConfig) -> None:
         self.config = config
         self.duration_seconds = config.duration_seconds
 
@@ -189,8 +248,26 @@ WAVE_DEFINITION = MovementDefinition(
     presets=[preset.model_copy(deep=True) for preset in WAVE_PRESETS.values()],
 )
 
+WRIST_LEAN_DEFINITION = MovementDefinition(
+    movement_id="wrist_lean",
+    name="Wrist Lean",
+    summary="A simple wrist-led movement: lean the wrist upward, pan the shoulder, and rotate the hand.",
+    description=(
+        "A deliberately simple library motion. Wrist flex creates the upward lean, shoulder pan presents the arm, "
+        "and wrist roll rotates the end-effector for a readable twist. The gripper adds a light accent."
+    ),
+    duration_seconds=round(WRIST_LEAN_PRESETS["normal"].cycles / WRIST_LEAN_PRESETS["normal"].frequency_hz, 2),
+    focus_joints=["shoulder_pan", "wrist_flex", "wrist_roll", "gripper"],
+    recommended_arm=ArmType.FOLLOWER,
+    controller="oscillator",
+    default_preset_id="normal",
+    neutral_pose=WRIST_LEAN_NEUTRAL_POSE,
+    presets=[preset.model_copy(deep=True) for preset in WRIST_LEAN_PRESETS.values()],
+)
+
 MOVEMENT_LIBRARY: dict[str, MovementSpec] = {
     WAVE_DEFINITION.movement_id: MovementSpec(definition=WAVE_DEFINITION),
+    WRIST_LEAN_DEFINITION.movement_id: MovementSpec(definition=WRIST_LEAN_DEFINITION),
 }
 
 
@@ -203,19 +280,23 @@ def get_movement(movement_id: str) -> MovementSpec | None:
 
 
 def build_motion_generator(request: MovementRunRequest) -> MotionGenerator:
-    if request.movement_id != WAVE_DEFINITION.movement_id:
+    config = resolve_oscillator_runtime(request)
+    return OscillatorMotionGenerator(config)
+
+
+def resolve_oscillator_runtime(request: MovementRunRequest) -> OscillatorRuntimeConfig:
+    spec = get_movement(request.movement_id)
+    if spec is None:
         raise ValueError(f"Unknown movement '{request.movement_id}'")
-    config = resolve_wave_runtime(request)
-    return WaveMotionGenerator(config)
 
-
-def resolve_wave_runtime(request: MovementRunRequest) -> WaveRuntimeConfig:
-    preset_id = request.preset_id or WAVE_DEFINITION.default_preset_id or "normal"
-    preset = WAVE_PRESETS.get(preset_id)
+    definition = spec.definition
+    preset_lookup = {preset.preset_id: preset for preset in definition.presets}
+    preset_id = request.preset_id if request.preset_id in preset_lookup else definition.default_preset_id or "normal"
+    preset = preset_lookup.get(preset_id)
     if preset is None:
         raise ValueError(f"Unknown preset '{preset_id}' for movement '{request.movement_id}'")
 
-    return WaveRuntimeConfig(
+    return OscillatorRuntimeConfig(
         movement_id=request.movement_id,
         preset_id=preset.preset_id,
         frequency_hz=request.frequency_hz or preset.frequency_hz,
@@ -223,7 +304,7 @@ def resolve_wave_runtime(request: MovementRunRequest) -> WaveRuntimeConfig:
         amplitude_scale=request.amplitude_scale or preset.amplitude_scale,
         softness=request.softness if request.softness is not None else preset.softness,
         asymmetry=request.asymmetry if request.asymmetry is not None else preset.asymmetry,
-        neutral_pose=dict(WAVE_NEUTRAL_POSE),
+        neutral_pose=dict(definition.neutral_pose),
         joint_profiles=tuple(profile.model_copy(deep=True) for profile in preset.joint_profiles),
         debug=request.debug,
     )
@@ -231,7 +312,7 @@ def resolve_wave_runtime(request: MovementRunRequest) -> WaveRuntimeConfig:
 
 def sample_motion(request: MovementRunRequest, sample_hz: float = 30.0) -> list[dict[str, float]]:
     generator = build_motion_generator(request)
-    if isinstance(generator, WaveMotionGenerator):
+    if isinstance(generator, OscillatorMotionGenerator):
         return generator.debug_samples(sample_hz=sample_hz)
 
     sample_period = 1.0 / max(sample_hz, 1.0)

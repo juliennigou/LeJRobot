@@ -1,6 +1,6 @@
 import { Activity, Hand, Loader2, Play, Square, Waves } from "lucide-react";
 
-import type { ArmAdapterState, MovementLibraryState } from "@/lib/types";
+import type { ArmAdapterState, MovementDefinition, MovementLibraryState } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,11 +31,7 @@ export function MovementLibraryPage({
   library,
   arms,
   selectedArmId,
-  selectedPresetId,
-  frequencyHz,
-  cycles,
-  amplitudeScale,
-  softness,
+  movementTunings,
   busyAction,
   onSelectArm,
   onSelectPreset,
@@ -43,24 +39,32 @@ export function MovementLibraryPage({
   onCyclesChange,
   onAmplitudeScaleChange,
   onSoftnessChange,
+  onAsymmetryChange,
   onRunMovement,
   onStopMovement,
 }: {
   library: MovementLibraryState | null;
   arms: ArmAdapterState[];
   selectedArmId: string | null;
-  selectedPresetId: string;
-  frequencyHz: number;
-  cycles: number;
-  amplitudeScale: number;
-  softness: number;
+  movementTunings: Record<
+    string,
+    {
+      presetId: string;
+      frequencyHz: number;
+      cycles: number;
+      amplitudeScale: number;
+      softness: number;
+      asymmetry: number;
+    }
+  >;
   busyAction: string | null;
   onSelectArm: (armId: string) => void;
-  onSelectPreset: (presetId: string) => void;
-  onFrequencyChange: (value: number) => void;
-  onCyclesChange: (value: number) => void;
-  onAmplitudeScaleChange: (value: number) => void;
-  onSoftnessChange: (value: number) => void;
+  onSelectPreset: (movementId: string, presetId: string) => void;
+  onFrequencyChange: (movementId: string, value: number) => void;
+  onCyclesChange: (movementId: string, value: number) => void;
+  onAmplitudeScaleChange: (movementId: string, value: number) => void;
+  onSoftnessChange: (movementId: string, value: number) => void;
+  onAsymmetryChange: (movementId: string, value: number) => void;
   onRunMovement: (movementId: string) => void;
   onStopMovement: () => void;
 }) {
@@ -69,14 +73,6 @@ export function MovementLibraryPage({
     progress: 0,
   };
   const selectedArm = arms.find((arm) => arm.arm_id === selectedArmId) ?? null;
-  const waveMovement = library?.movements.find((movement) => movement.movement_id === "wave") ?? null;
-  const selectedPreset =
-    waveMovement?.presets.find((preset) => preset.preset_id === selectedPresetId) ??
-    waveMovement?.presets[0] ??
-    null;
-  const phaseChain = selectedPreset?.joint_profiles
-    .map((profile) => `${titleize(profile.joint_name)} ${profile.phase_delay_radians.toFixed(2)}rad`)
-    .join(" -> ");
 
   return (
     <section className="grid gap-6">
@@ -89,9 +85,8 @@ export function MovementLibraryPage({
           </div>
           <CardTitle className="text-3xl text-white">Single-Arm Movement Studio</CardTitle>
           <CardDescription className="max-w-3xl text-slate-300">
-            Start with reusable motion primitives before binding everything to music. The first movement is a
-            calibrated `wave` built from one shared oscillator, progressive phase delays, and a stronger wrist
-            signature than shoulder travel.
+            Start with reusable motion primitives before binding everything to music. The library now includes the
+            fitted `wave` plus a simpler `wrist_lean` built around upward wrist flex, shoulder pan, and a hand twist.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -139,7 +134,7 @@ export function MovementLibraryPage({
           <CardHeader>
             <CardTitle className="text-white">6 Joint Roles</CardTitle>
             <CardDescription className="text-slate-300">
-              The wave is designed as layered motion: pose joints first, expression joints last.
+              Build movements from a small number of readable joint roles instead of fighting every servo at once.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
@@ -158,14 +153,20 @@ export function MovementLibraryPage({
           <CardHeader>
             <CardTitle className="text-white">Available Movements</CardTitle>
             <CardDescription className="text-slate-300">
-              Movements are high-level primitives. `wave` is generated from a global oscillator with per-joint amplitude
-              and phase offsets.
+              Movements are high-level primitives. Some are layered and expressive like `wave`; others stay deliberately
+              simple, like the new `wrist_lean`.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             {(library?.movements ?? []).map((movement) => {
               const canRun = !!selectedArm && armReady(selectedArm) && active.status !== "running";
               const isRunning = active.status === "running" && active.movement_id === movement.movement_id;
+              const tuning = movementTunings[movement.movement_id] ?? defaultMovementTuning(movement);
+              const selectedPreset =
+                movement.presets.find((preset) => preset.preset_id === tuning.presetId) ?? movement.presets[0] ?? null;
+              const phaseChain = selectedPreset?.joint_profiles
+                .map((profile) => `${titleize(profile.joint_name)} ${profile.phase_delay_radians.toFixed(2)}rad`)
+                .join(" -> ");
 
               return (
                 <div
@@ -220,23 +221,23 @@ export function MovementLibraryPage({
                     ))}
                   </div>
 
-                  {movement.movement_id === "wave" ? (
+                  {movement.controller === "oscillator" && movement.presets.length > 0 ? (
                     <div className="mt-6 grid gap-5 rounded-[22px] border border-white/10 bg-black/25 p-4">
                       <div>
                         <p className="text-sm font-semibold text-white">Style Presets</p>
                         <p className="mt-1 text-sm text-slate-400">
-                          Shoulder motion stays restrained while the wrist carries the signature of the gesture.
+                          Use these to test timing and intensity directly next to the movement before running it.
                         </p>
                         <div className="mt-4 flex flex-wrap gap-3">
                           {movement.presets.map((preset) => (
                             <button
                               key={preset.preset_id}
                               className={`rounded-2xl border px-4 py-3 text-left transition ${
-                                selectedPresetId === preset.preset_id
+                                tuning.presetId === preset.preset_id
                                   ? "border-primary/40 bg-primary/10 text-white"
                                   : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20"
                               }`}
-                              onClick={() => onSelectPreset(preset.preset_id)}
+                              onClick={() => onSelectPreset(movement.movement_id, preset.preset_id)}
                               type="button"
                             >
                               <p className="text-sm font-semibold">{preset.label}</p>
@@ -249,39 +250,48 @@ export function MovementLibraryPage({
                       <div className="grid gap-4 xl:grid-cols-2">
                         <TuningSlider
                           label="Tempo"
-                          value={frequencyHz}
-                          display={`${frequencyHz.toFixed(2)} Hz`}
-                          min={0.5}
+                          value={tuning.frequencyHz}
+                          display={`${tuning.frequencyHz.toFixed(2)} Hz`}
+                          min={0.2}
                           max={1.5}
                           step={0.01}
-                          onChange={onFrequencyChange}
+                          onChange={(value) => onFrequencyChange(movement.movement_id, value)}
                         />
                         <TuningSlider
                           label="Cycles"
-                          value={cycles}
-                          display={`${cycles.toFixed(0)} cycles`}
-                          min={2}
+                          value={tuning.cycles}
+                          display={`${tuning.cycles.toFixed(0)} cycles`}
+                          min={1}
                           max={8}
                           step={1}
-                          onChange={(value) => onCyclesChange(Math.round(value))}
+                          onChange={(value) => onCyclesChange(movement.movement_id, Math.round(value))}
                         />
                         <TuningSlider
                           label="Amplitude"
-                          value={amplitudeScale}
-                          display={`${amplitudeScale.toFixed(2)}x`}
+                          value={tuning.amplitudeScale}
+                          display={`${tuning.amplitudeScale.toFixed(2)}x`}
                           min={0.5}
                           max={1.6}
                           step={0.01}
-                          onChange={onAmplitudeScaleChange}
+                          onChange={(value) => onAmplitudeScaleChange(movement.movement_id, value)}
                         />
                         <TuningSlider
                           label="Softness"
-                          value={softness}
-                          display={softness.toFixed(2)}
+                          value={tuning.softness}
+                          display={tuning.softness.toFixed(2)}
                           min={0.2}
                           max={1.0}
                           step={0.01}
-                          onChange={onSoftnessChange}
+                          onChange={(value) => onSoftnessChange(movement.movement_id, value)}
+                        />
+                        <TuningSlider
+                          label="Asymmetry"
+                          value={tuning.asymmetry}
+                          display={tuning.asymmetry.toFixed(2)}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          onChange={(value) => onAsymmetryChange(movement.movement_id, value)}
                         />
                       </div>
 
@@ -289,8 +299,8 @@ export function MovementLibraryPage({
                         <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
                           <p className="text-sm font-semibold text-white">Prepared Base Pose</p>
                           <p className="mt-1 text-sm text-slate-400">
-                            The arm stays slightly lifted, elbow bent, and wrist pre-flexed so the gesture already looks
-                            ready to move.
+                            This is the neutral pose used before the oscillator adds motion. It makes testing easier
+                            because you can see exactly where the gesture starts.
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             {Object.entries(movement.neutral_pose).map(([joint, value]) => (
@@ -303,7 +313,7 @@ export function MovementLibraryPage({
                         <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
                           <p className="text-sm font-semibold text-white">Phase Chain</p>
                           <p className="mt-1 text-sm text-slate-400">
-                            Shoulder starts first, elbow follows, wrist finishes the wave.
+                            Proximal joints start first; distal joints finish the gesture.
                           </p>
                           <p className="mt-3 text-sm text-slate-200">{phaseChain ?? "No preset selected."}</p>
                         </div>
@@ -363,6 +373,19 @@ export function MovementLibraryPage({
       </div>
     </section>
   );
+}
+
+function defaultMovementTuning(movement: MovementDefinition) {
+  const preset =
+    movement.presets.find((entry) => entry.preset_id === movement.default_preset_id) ?? movement.presets[0] ?? null;
+  return {
+    presetId: preset?.preset_id ?? "normal",
+    frequencyHz: preset?.frequency_hz ?? 0.8,
+    cycles: preset?.cycles ?? 2,
+    amplitudeScale: preset?.amplitude_scale ?? 1,
+    softness: preset?.softness ?? 0.72,
+    asymmetry: preset?.asymmetry ?? 0,
+  };
 }
 
 function TuningSlider({
