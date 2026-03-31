@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Music2, Play, Search, Square } from "lucide-react";
+import { Circle, Music2, Play, RefreshCw, Search, Square } from "lucide-react";
 
 import type {
   AnalysisStatusResponse,
   AudioAnalysis,
   AutonomousPerformanceState,
+  ArmAdapterState,
   ChoreographySchedule,
   TrackSummary,
 } from "@/lib/types";
@@ -27,6 +28,9 @@ export function PerformancePage({
   schedule,
   autonomy,
   autonomyBusy,
+  arms,
+  verifyingHardware,
+  hardwareBusy,
   currentTime,
   transportPlaying,
   onTimeChange,
@@ -34,6 +38,9 @@ export function PerformancePage({
   onSelectTrack,
   onStartAutonomy,
   onStopAutonomy,
+  onVerifyHardware,
+  onConnectAll,
+  onDisconnectAll,
 }: {
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
@@ -47,6 +54,9 @@ export function PerformancePage({
   schedule: ChoreographySchedule | null;
   autonomy: AutonomousPerformanceState;
   autonomyBusy: boolean;
+  arms: ArmAdapterState[];
+  verifyingHardware: boolean;
+  hardwareBusy: boolean;
   currentTime: number;
   transportPlaying: boolean;
   onTimeChange: (value: number) => void;
@@ -54,6 +64,9 @@ export function PerformancePage({
   onSelectTrack: (track: TrackSummary) => void;
   onStartAutonomy: () => void;
   onStopAutonomy: () => void;
+  onVerifyHardware: () => void;
+  onConnectAll: () => void;
+  onDisconnectAll: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [mediaElement, setMediaElement] = useState<HTMLAudioElement | null>(null);
@@ -69,6 +82,8 @@ export function PerformancePage({
     { label: "phrases", value: schedule ? String(schedule.phrase_count) : "--" },
     { label: "style", value: schedule?.style_id ?? "--" },
   ];
+  const allConnected = arms.length > 0 && arms.every((arm) => arm.connected);
+  const anyConnected = arms.some((arm) => arm.connected);
 
   useEffect(() => {
     if (audioRef.current && audioRef.current !== mediaElement) {
@@ -240,6 +255,44 @@ export function PerformancePage({
                 </div>
               </div>
             )}
+
+            <div className="flex flex-col gap-3 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap gap-2">
+                {arms.map((arm) => {
+                  const status = arm.connected && arm.telemetry_live ? "live" : arm.verification.status === "ready" ? "ready" : "offline";
+                  const toneClass =
+                    status === "live"
+                      ? "fill-emerald-400 text-emerald-300"
+                      : status === "ready"
+                        ? "fill-amber-400 text-amber-200"
+                        : "fill-red-400 text-red-200";
+
+                  return (
+                    <div
+                      key={arm.arm_id}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2"
+                    >
+                      <Circle className={`h-2.5 w-2.5 ${toneClass}`} />
+                      <span className="text-xs font-medium capitalize text-white">{arm.arm_type}</span>
+                      <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{status}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button variant="ghost" className="rounded-full px-4" disabled={verifyingHardware || hardwareBusy} onClick={onVerifyHardware}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${verifyingHardware ? "animate-spin" : ""}`} />
+                  Verify
+                </Button>
+                <Button variant="ghost" className="rounded-full px-4" disabled={hardwareBusy || allConnected} onClick={onConnectAll}>
+                  Connect Both
+                </Button>
+                <Button variant="ghost" className="rounded-full px-4" disabled={hardwareBusy || !anyConnected} onClick={onDisconnectAll}>
+                  Disconnect Both
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
 
