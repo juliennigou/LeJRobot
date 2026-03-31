@@ -1,4 +1,4 @@
-import type { AudioAnalysis, ChoreographyTimeline } from "@/lib/types";
+import type { AudioAnalysis, ChoreographySchedule, ChoreographyTimeline } from "@/lib/types";
 
 import { formatDuration } from "@/lib/analysis-view";
 
@@ -9,9 +9,11 @@ function cueCountInWindow(times: number[], start: number, end: number) {
 export function StructurePanel({
   analysis,
   choreography,
+  schedule,
 }: {
   analysis: AudioAnalysis | null;
   choreography: ChoreographyTimeline | null;
+  schedule: ChoreographySchedule | null;
 }) {
   if (!analysis) {
     return <EmptyPanel text="Structure markers show up after the backend returns a section timeline." />;
@@ -82,6 +84,36 @@ export function StructurePanel({
             title="Arm Channels"
             note={choreography ? `${choreography.arm_left_cues.length} left-arm cues and ${choreography.arm_right_cues.length} right-arm cues are ready for the hardware bridge.` : "Arm-specific cue channels will appear with the choreography timeline."}
           />
+          <MappingBanner
+            title="Scheduled Phrases"
+            note={
+              schedule
+                ? `${schedule.phrase_count} scheduled movement phrases are ready for autonomous playback.`
+                : "Phrase scheduling appears after analysis is stored for the selected track."
+            }
+          />
+          {schedule ? (
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-base font-semibold text-white">First Scheduled Phrases</p>
+              <div className="mt-4 space-y-3">
+                {schedule.phrases.slice(0, 4).map((phrase) => (
+                  <div key={phrase.phrase_id} className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-semibold capitalize text-white">
+                        {phrase.movement_id} · {phrase.preset_id}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {formatDuration(phrase.start_seconds)} - {formatDuration(phrase.end_seconds)}
+                      </p>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-400">
+                      {phrase.section_label} · {phrase.execution_mode} · intensity {Math.round(phrase.intensity * 100)}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

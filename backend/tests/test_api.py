@@ -177,6 +177,8 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertAlmostEqual(state_payload["transport"]["energy"], payload["energy"]["rms"][0], places=3)
         expected_spectrum = self._expected_spectrum_prefix(payload)
         self.assertEqual(state_payload["spectrum"][:3], expected_spectrum)
+        self.assertIsNotNone(state_payload["schedule"])
+        self.assertGreater(state_payload["schedule"]["phrase_count"], 0)
         self.assertEqual(len(state_payload["dual_arm"]["arms"]), 2)
         self.assertEqual(state_payload["dual_arm"]["execution"]["mode"], "mirror")
 
@@ -194,6 +196,14 @@ class ApiSmokeTest(unittest.TestCase):
             any(cue["kind"] == "accent" for cue in choreography_payload["global_cues"])
             or any(cue["kind"] == "hold" for cue in choreography_payload["global_cues"])
         )
+
+        schedule = self.client.get(f"/api/schedule/{track['source']}/{track['track_id']}")
+        self.assertEqual(schedule.status_code, 200)
+        schedule_payload = schedule.json()
+        self.assertGreater(schedule_payload["phrase_count"], 0)
+        self.assertEqual(schedule_payload["phrase_count"], len(schedule_payload["phrases"]))
+        self.assertTrue(all(phrase["target_scope"] == "both" for phrase in schedule_payload["phrases"]))
+        self.assertTrue(all(phrase["execution_mode"] in {"mirror", "unison"} for phrase in schedule_payload["phrases"]))
 
         arms = self.client.get("/api/arms")
         self.assertEqual(arms.status_code, 200)

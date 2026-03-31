@@ -15,6 +15,7 @@ from .models import (
     ArmConnectionUpdate,
     ArmSafetyUpdate,
     AudioAnalysis,
+    ChoreographySchedule,
     ChoreographyTimeline,
     DanceMode,
     DualArmState,
@@ -37,6 +38,8 @@ from .models import (
     TransportState,
     TransportUpdate,
 )
+from .movement_library import list_movements
+from .scheduler import ChoreographyScheduler
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SETUP_PATH = ROOT_DIR / ".data" / "setup.json"
@@ -112,6 +115,8 @@ class RobotStateStore:
         self.analysis_statuses: dict[tuple[TrackSource, str], AnalysisStatusResponse] = {}
         self.analysis_results: dict[tuple[TrackSource, str], AudioAnalysis] = {}
         self.choreography_results: dict[tuple[TrackSource, str], ChoreographyTimeline] = {}
+        self.schedule_results: dict[tuple[TrackSource, str], ChoreographySchedule] = {}
+        self.scheduler = ChoreographyScheduler(list_movements())
         self.servos = [
             ServoRuntime(id=servo_id, name=name, angle=0.0, target_angle=0.0)
             for servo_id, name in SERVO_LAYOUT
@@ -245,6 +250,7 @@ class RobotStateStore:
             servos=public_servos,
             dual_arm=dual_arm,
             movement_library=self.arm_adapter.movement_library_snapshot(),
+            schedule=self.current_schedule(),
         )
 
     def _build_spectrum(self) -> list[int]:
@@ -380,6 +386,12 @@ class RobotStateStore:
             return None
         return self.choreography_results.get(self._track_key(track.source, track.track_id))
 
+    def current_schedule(self) -> ChoreographySchedule | None:
+        track = self.transport.current_track
+        if track is None:
+            return None
+        return self.schedule_results.get(self._track_key(track.source, track.track_id))
+
     def arms_snapshot(self) -> DualArmState:
         self._tick()
         return self.arm_adapter.snapshot(self.current_choreography(), self.transport.position_seconds)
@@ -450,6 +462,7 @@ class RobotStateStore:
     def queue_analysis(self, payload: TrackReference) -> AnalysisStartResponse:
         self.analysis_results.pop(self._track_key(payload.source, payload.track_id), None)
         self.choreography_results.pop(self._track_key(payload.source, payload.track_id), None)
+        self.schedule_results.pop(self._track_key(payload.source, payload.track_id), None)
         status = AnalysisStatusResponse(
             track_id=payload.track_id,
             source=payload.source,
@@ -481,6 +494,10 @@ class RobotStateStore:
         self._status_for_reference(payload)
         return self.choreography_results.get(self._track_key(payload.source, payload.track_id))
 
+    def get_schedule(self, payload: TrackReference) -> ChoreographySchedule | None:
+        self._status_for_reference(payload)
+        return self.schedule_results.get(self._track_key(payload.source, payload.track_id))
+
     def remember_track(self, track: TrackSummary) -> TrackSummary:
         self.known_tracks[self._track_key(track.source, track.track_id)] = track
         return track
@@ -508,6 +525,7 @@ class RobotStateStore:
         key = self._track_key(analysis.source, analysis.track_id)
         self.analysis_results[key] = analysis
         self.choreography_results[key] = analysis.choreography
+        self.schedule_results[key] = self.scheduler.build_schedule(analysis)
 
         known_track = self.known_tracks.get(key)
         if known_track is not None:

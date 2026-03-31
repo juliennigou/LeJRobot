@@ -218,6 +218,7 @@ function App() {
   }, []);
 
   const currentTrack = state?.transport.current_track ?? null;
+  const currentSchedule = state?.schedule ?? null;
   const movementLibrary = state?.movement_library ?? null;
 
   useEffect(() => {
@@ -699,7 +700,7 @@ function App() {
                 </TabsContent>
 
                 <TabsContent value="structure" className="pt-6">
-                  <StructurePanel analysis={analysis} choreography={cueSummary} />
+                  <StructurePanel analysis={analysis} choreography={cueSummary} schedule={currentSchedule} />
                 </TabsContent>
 
                 <TabsContent value="track-info" className="pt-6">
@@ -707,6 +708,7 @@ function App() {
                     track={currentTrack}
                     analysis={analysis}
                     choreography={cueSummary}
+                    schedule={currentSchedule}
                     analysisStatus={analysisStatus}
                     analysisLoading={analysisLoading}
                     analysisError={analysisError}
