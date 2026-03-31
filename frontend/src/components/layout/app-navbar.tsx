@@ -3,11 +3,10 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
-export type AppView = "home" | "performance" | "analysis" | "movements" | "robot";
+export type AppView = "home" | "analysis" | "movements" | "robot";
 
 const NAV_ITEMS: Array<{ id: AppView; label: string }> = [
   { id: "home", label: "Home" },
-  { id: "performance", label: "Performance" },
   { id: "analysis", label: "Audio Stats" },
   { id: "movements", label: "Movement Library" },
   { id: "robot", label: "Robot Dashboard" },

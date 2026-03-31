@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Disc3, Music2, Search, Sparkles, Upload } from "lucide-react";
+import { Clock3, Disc3, Music2, Sparkles } from "lucide-react";
 
 import {
   fetchAnalysis,
@@ -43,13 +43,10 @@ import { StructurePanel } from "@/components/analysis/structure-panel";
 import { TrackInfoPanel } from "@/components/analysis/track-info-panel";
 import { HardwareStatusDashboard } from "@/components/hardware/hardware-status-dashboard";
 import { AppNavbar, type AppView } from "@/components/layout/app-navbar";
-import { WaveformConsole } from "@/components/music/waveform-console";
 import { MovementLibraryPage } from "@/components/movements/movement-library-page";
 import { PerformancePage } from "@/components/performance/performance-page";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { average, formatDuration } from "@/lib/analysis-view";
 
@@ -126,7 +123,6 @@ function App() {
   const [movementTunings, setMovementTunings] = useState<Record<string, MovementTuning>>({});
   const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft | null>(null);
   const [scheduleBusyAction, setScheduleBusyAction] = useState<string | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewPositionRef = useRef(0);
   const previewPlayingRef = useRef(false);
   const transportSyncInFlightRef = useRef(false);
@@ -196,36 +192,6 @@ function App() {
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!selectedUploadFile) {
-      setUploadError("Choose an audio file to upload.");
-      return;
-    }
-
-    setUploading(true);
-    setUploadError(null);
-
-    try {
-      const track = await uploadTrack(selectedUploadFile);
-      startTransition(() => {
-        setLocalTracks((current) => {
-          const remaining = current.filter((item) => item.track_id !== track.track_id);
-          return [track, ...remaining];
-        });
-      });
-      await commitAction(() => selectTrack(track, true));
-      if (uploadInputRef.current) {
-        uploadInputRef.current.value = "";
-      }
-      setSelectedUploadFile(null);
-      setActiveView("home");
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -355,7 +321,7 @@ function App() {
   }, [currentTrack?.track_id, currentTrack?.source]);
 
   useEffect(() => {
-    if (!currentTrack || activeView !== "performance") {
+    if (!currentTrack || activeView !== "home") {
       return;
     }
 
@@ -378,9 +344,9 @@ function App() {
 
   const bpm = analysis ? analysis.bpm : (state?.transport.bpm ?? 120);
   const energy = analysis ? average(analysis.energy.rms) : (state?.transport.energy ?? 0.5);
-  const positionSeconds = activeView === "performance" ? previewPositionSeconds : (state?.transport.position_seconds ?? previewPositionSeconds);
+  const positionSeconds = activeView === "home" ? previewPositionSeconds : (state?.transport.position_seconds ?? previewPositionSeconds);
   const cueSummary = choreography ?? analysis?.choreography ?? null;
-  const transportPlaying = activeView === "performance" ? previewPlaying : (state?.transport.playing ?? previewPlaying);
+  const transportPlaying = activeView === "home" ? previewPlaying : (state?.transport.playing ?? previewPlaying);
 
   const syncTransportPlayback = useCallback(
     async (playing: boolean, nextPositionSeconds = previewPositionRef.current) => {
@@ -725,8 +691,6 @@ function App() {
     return Array.from(deduped.values()).slice(0, 10);
   }, [localTracks, searchResults]);
 
-  const showDropdown = searchQuery.trim().length > 0 && (searching || searchDropdownResults.length > 0 || !!searchError);
-
   return (
     <main className="relative min-h-screen overflow-hidden px-4 py-4 sm:px-6 lg:px-10">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(82,170,255,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(188,229,255,0.14),transparent_28%),linear-gradient(180deg,rgba(4,10,20,0.45),rgba(4,10,20,0.8))]" />
@@ -734,122 +698,31 @@ function App() {
         <AppNavbar activeView={activeView} onChange={setActiveView} />
 
         {activeView === "home" ? (
-          <section className="grid gap-6">
-            <Card className="border-white/10 bg-white/[0.04]">
-              <CardContent className="p-6 sm:p-8">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge>Home</Badge>
-                  <Badge variant="accent">{currentTrack ? "Track Selected" : "Select a Song"}</Badge>
-                </div>
-
-                <div className="mt-6 max-w-4xl">
-                  <h1 className="text-3xl font-bold leading-tight text-white sm:text-4xl">
-                    Search a song, upload one locally, and preview it before touching the robots.
-                  </h1>
-                  <p className="mt-3 text-sm text-slate-300 sm:text-base">
-                    Keep the first screen simple: one search field, one dropdown, one upload action, then the waveform.
-                  </p>
-                </div>
-
-                <div className="mt-8">
-                  <div>
-                    <form
-                      className="flex flex-col gap-3 sm:flex-row sm:items-center"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void runSearch(searchQuery);
-                      }}
-                    >
-                      <div className="relative flex-1">
-                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <Input
-                          value={searchQuery}
-                          onChange={(event) => setSearchQuery(event.target.value)}
-                          placeholder="Search song, artist, or mood"
-                          className="h-14 pl-11 pr-5 text-base"
-                        />
-                      </div>
-                      <Button type="submit" size="lg" className="sm:min-w-32" disabled={searching}>
-                        {searching ? "Searching..." : "Search"}
-                      </Button>
-                    </form>
-
-                    {showDropdown ? (
-                      <div className="mt-3 overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,31,0.98),rgba(5,10,19,0.98))] shadow-[0_28px_80px_rgba(0,0,0,0.45)]">
-                        {searchError ? (
-                          <div className="border-b border-white/10 px-5 py-4 text-sm text-red-200">{searchError}</div>
-                        ) : null}
-                        {searching ? (
-                          <div className="px-5 py-4 text-sm text-slate-300">Searching tracks...</div>
-                        ) : null}
-                        {searchDropdownResults.length ? (
-                          <div className="max-h-[420px] overflow-y-auto">
-                            {searchDropdownResults.map((track) => (
-                              <DropdownTrackRow
-                                key={`${track.source}-${track.track_id}`}
-                                track={track}
-                                onSelect={() => void commitAction(() => selectTrack(track, true))}
-                              />
-                            ))}
-                          </div>
-                        ) : !searching && !searchError ? (
-                          <div className="px-5 py-4 text-sm text-slate-400">No tracks found for this query.</div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 p-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="hud-label">Local Upload</p>
-                        <p className="mt-1 text-sm text-slate-400">
-                          Add your own file and it will appear in the same search dropdown.
-                        </p>
-                      </div>
-                      <div className="flex flex-col gap-3 md:w-[420px] md:flex-row">
-                      <input
-                        ref={uploadInputRef}
-                        type="file"
-                        accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*"
-                        onChange={(event) => setSelectedUploadFile(event.target.files?.[0] ?? null)}
-                        className="block w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary md:flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="md:min-w-40"
-                        disabled={uploading}
-                        onClick={() => void handleUpload()}
-                      >
-                        <Upload className="mr-2 h-4 w-4" />
-                        {uploading ? "Uploading..." : "Upload Track"}
-                      </Button>
-                    </div>
-                    </div>
-                    {uploadError ? <p className="mt-3 text-sm text-red-200">{uploadError}</p> : null}
-                  </div>
-                </div>
-
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <TrackChip label="Selected" value={currentTrack ? currentTrack.title : "none"} />
-                  <TrackChip label="Artist" value={currentTrack ? currentTrack.artist : "none"} />
-                  <TrackChip label="Duration" value={formatDuration(currentTrack?.duration_seconds)} />
-                  <TrackChip label="Preview" value={currentTrack?.audio_url ? "ready" : "missing"} />
-                </div>
-              </CardContent>
-            </Card>
-
-            <WaveformConsole
-              track={currentTrack}
-              analysis={analysis}
-              schedule={currentSchedule}
-              currentTime={positionSeconds}
-              transportPlaying={transportPlaying}
-              onTimeChange={setPreviewPositionSeconds}
-              onTransportChange={syncTransportPlayback}
-            />
-          </section>
+          <PerformancePage
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            onSearch={() => void runSearch(searchQuery)}
+            searching={searching}
+            searchError={searchError}
+            results={searchDropdownResults}
+            currentTrack={currentTrack}
+            analysis={analysis}
+            analysisStatus={analysisStatus}
+            schedule={currentSchedule}
+            autonomy={state?.autonomy ?? { status: "idle", note: "Autonomous scheduler idle." }}
+            autonomyBusy={autonomyBusy}
+            currentTime={positionSeconds}
+            transportPlaying={transportPlaying}
+            onTimeChange={setPreviewPositionSeconds}
+            onTransportChange={syncTransportPlayback}
+            onSelectTrack={(track) => {
+              setSearchQuery(track.title);
+              setSearchResults([]);
+              void commitAction(() => selectTrack(track, true));
+            }}
+            onStartAutonomy={() => void handleStartAutonomy()}
+            onStopAutonomy={() => void handleStopAutonomy()}
+          />
         ) : null}
 
         {activeView === "analysis" ? (
@@ -941,34 +814,6 @@ function App() {
               </Tabs>
             </CardContent>
           </Card>
-        ) : null}
-
-        {activeView === "performance" ? (
-          <PerformancePage
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-            onSearch={() => void runSearch(searchQuery)}
-            searching={searching}
-            searchError={searchError}
-            results={searchDropdownResults}
-            currentTrack={currentTrack}
-            analysis={analysis}
-            analysisStatus={analysisStatus}
-            schedule={currentSchedule}
-            autonomy={state?.autonomy ?? { status: "idle", note: "Autonomous scheduler idle." }}
-            autonomyBusy={autonomyBusy}
-            currentTime={positionSeconds}
-            transportPlaying={transportPlaying}
-            onTimeChange={setPreviewPositionSeconds}
-            onTransportChange={syncTransportPlayback}
-            onSelectTrack={(track) => {
-              setSearchQuery(track.title);
-              setSearchResults([]);
-              void commitAction(() => selectTrack(track, true));
-            }}
-            onStartAutonomy={() => void handleStartAutonomy()}
-            onStopAutonomy={() => void handleStopAutonomy()}
-          />
         ) : null}
 
         {activeView === "movements" ? (
