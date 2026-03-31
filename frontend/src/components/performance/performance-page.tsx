@@ -70,6 +70,7 @@ export function PerformancePage({
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [mediaElement, setMediaElement] = useState<HTMLAudioElement | null>(null);
+  const safeArms = arms ?? [];
   const readyToDance = !!currentTrack && !!schedule && schedule.phrase_count > 0;
   const currentStatus = analysisStatus?.status ?? currentTrack?.analysis_status ?? "none";
   const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -82,8 +83,8 @@ export function PerformancePage({
     { label: "phrases", value: schedule ? String(schedule.phrase_count) : "--" },
     { label: "style", value: schedule?.style_id ?? "--" },
   ];
-  const allConnected = arms.length > 0 && arms.every((arm) => arm.connected);
-  const anyConnected = arms.some((arm) => arm.connected);
+  const allConnected = safeArms.length > 0 && safeArms.every((arm) => arm.connected);
+  const anyConnected = safeArms.some((arm) => arm.connected);
 
   useEffect(() => {
     if (audioRef.current && audioRef.current !== mediaElement) {
@@ -258,7 +259,7 @@ export function PerformancePage({
 
             <div className="flex flex-col gap-3 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap gap-2">
-                {arms.map((arm) => {
+                {safeArms.map((arm) => {
                   const status = arm.connected && arm.telemetry_live ? "live" : arm.verification.status === "ready" ? "ready" : "offline";
                   const toneClass =
                     status === "live"
