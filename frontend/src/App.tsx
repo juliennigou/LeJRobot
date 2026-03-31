@@ -7,16 +7,19 @@ import {
   fetchChoreography,
   fetchState,
   searchTracks,
+  setArmConnection,
   selectTrack,
   setTransport,
   startAnalysis,
   uploadTrack,
+  verifyArms,
 } from "@/lib/api";
 import type { AnalysisStatusResponse, AudioAnalysis, ChoreographyTimeline, RobotState, TrackSummary } from "@/lib/types";
 import { RhythmPanel } from "@/components/analysis/rhythm-panel";
 import { SpectrogramPanel } from "@/components/analysis/spectrogram-panel";
 import { StructurePanel } from "@/components/analysis/structure-panel";
 import { TrackInfoPanel } from "@/components/analysis/track-info-panel";
+import { HardwareStatusDashboard } from "@/components/hardware/hardware-status-dashboard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +46,8 @@ function App() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [previewPositionSeconds, setPreviewPositionSeconds] = useState(0);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [verifyingHardware, setVerifyingHardware] = useState(false);
+  const [hardwareBusyArmId, setHardwareBusyArmId] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -267,6 +272,32 @@ function App() {
     [bpm, currentTrack, energy],
   );
 
+  const handleVerifyHardware = useCallback(async () => {
+    setVerifyingHardware(true);
+    try {
+      await verifyArms();
+      await refreshState();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to verify hardware");
+    } finally {
+      setVerifyingHardware(false);
+    }
+  }, []);
+
+  const handleToggleArmConnection = useCallback(async (armId: string, connected: boolean) => {
+    setHardwareBusyArmId(armId);
+    try {
+      await setArmConnection(armId, connected);
+      await refreshState();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update arm connection");
+    } finally {
+      setHardwareBusyArmId(null);
+    }
+  }, []);
+
   return (
     <main className="relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 lg:px-10">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(82,170,255,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(188,229,255,0.14),transparent_28%),linear-gradient(180deg,rgba(4,10,20,0.45),rgba(4,10,20,0.8))]" />
@@ -438,6 +469,15 @@ function App() {
             </CardContent>
           </Card>
         </section>
+
+        <HardwareStatusDashboard
+          state={state}
+          loading={loading}
+          verifying={verifyingHardware}
+          busyArmId={hardwareBusyArmId}
+          onVerify={() => void handleVerifyHardware()}
+          onToggleConnection={(armId, connected) => void handleToggleArmConnection(armId, connected)}
+        />
 
         <WaveformConsole
           track={currentTrack}

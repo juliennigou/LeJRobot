@@ -4,6 +4,7 @@ import type {
   AudioAnalysis,
   ChoreographyTimeline,
   DanceMode,
+  DualArmState,
   RobotConfig,
   RobotState,
   SceneName,
@@ -38,6 +39,19 @@ export function fetchConfig() {
 
 export function fetchState() {
   return request<RobotState>("/api/state");
+}
+
+export function verifyArms() {
+  return request<DualArmState>("/api/arms/verify", {
+    method: "POST",
+  });
+}
+
+export function setArmConnection(armId: string, connected: boolean) {
+  return request<DualArmState>(`/api/arms/${armId}/connect`, {
+    method: "POST",
+    body: JSON.stringify({ connected }),
+  });
 }
 
 export function setMode(mode: DanceMode) {
