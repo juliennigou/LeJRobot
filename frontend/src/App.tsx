@@ -1,12 +1,10 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   BarChart3,
   Clock3,
   Disc3,
   Music2,
-  Pause,
-  Play,
   Search,
   Sparkles,
   Upload,
@@ -29,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WaveformConsole } from "@/components/music/waveform-console";
 
 function formatDuration(durationSeconds?: number | null) {
   if (!durationSeconds) {
@@ -110,6 +109,8 @@ function App() {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatusResponse | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [previewPositionSeconds, setPreviewPositionSeconds] = useState(0);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -221,6 +222,8 @@ function App() {
       setAnalysisStatus(null);
       setAnalysisError(null);
       setAnalysisLoading(false);
+      setPreviewPositionSeconds(0);
+      setPreviewPlaying(false);
       return;
     }
 
@@ -300,7 +303,7 @@ function App() {
     : "No song selected";
   const bpm = analysis ? analysis.bpm : (state?.transport.bpm ?? 120);
   const energy = analysis ? average(analysis.energy.rms) : (state?.transport.energy ?? 0.5);
-  const positionSeconds = state?.transport.position_seconds ?? 0;
+  const positionSeconds = currentTrack ? previewPositionSeconds : (state?.transport.position_seconds ?? 0);
   const analysisFrameIndex = analysis ? Math.floor(positionSeconds * analysis.energy.frame_hz) : 0;
   const waveformBars = analysis
     ? downsample(analysis.waveform.peaks, 56).map((value) => Math.round(14 + value * 86))
@@ -310,6 +313,33 @@ function App() {
   const highBandValue = analysis ? sampleSeries(analysis.bands.high, analysisFrameIndex) : 0;
   const activeSection = analysis ? currentSection(analysis.sections, positionSeconds) : null;
   const cueSummary = choreography ?? analysis?.choreography ?? null;
+  const transportPlaying = currentTrack ? previewPlaying : (state?.transport.playing ?? false);
+
+  const syncTransportPlayback = useCallback(
+    async (playing: boolean) => {
+      if (!currentTrack) {
+        setPreviewPlaying(false);
+        return;
+      }
+
+      setPreviewPlaying(playing);
+
+      try {
+        const next = await setTransport({
+          track_name: `${currentTrack.title} - ${currentTrack.artist}`,
+          bpm,
+          energy,
+          playing,
+        });
+        startTransition(() => {
+          setState(next);
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to update transport");
+      }
+    },
+    [bpm, currentTrack, energy],
+  );
 
   return (
     <main className="relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 lg:px-10">
@@ -321,7 +351,7 @@ function App() {
               <div className="flex flex-wrap items-center gap-3">
                 <Badge>Music Search</Badge>
                 <Badge variant="muted">Song-First Interface</Badge>
-                <Badge variant="accent">{state?.transport.playing ? "Transport Live" : "Waiting on Selection"}</Badge>
+                <Badge variant="accent">{transportPlaying ? "Transport Live" : "Waiting on Selection"}</Badge>
               </div>
 
               <div className="mt-6 max-w-3xl space-y-4">
@@ -437,7 +467,7 @@ function App() {
                     </p>
                   </div>
                   <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-slate-300">
-                    {state?.transport.playing ? "Playing" : "Paused"}
+                    {transportPlaying ? "Playing" : "Paused"}
                   </div>
                 </div>
 
@@ -448,41 +478,23 @@ function App() {
                 </div>
 
                 <div className="mt-8 rounded-[28px] border border-white/10 bg-black/25 p-5">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
-                      <p className="hud-label">Transport</p>
+                      <p className="hud-label">Waveform Workflow</p>
                       <p className="mt-2 text-lg font-medium text-white">
-                        {currentTrack ? "Preview and inspect the song before robot integration." : "No preview loaded"}
+                        {currentTrack ? "Preview is now centered in the waveform console below." : "No preview loaded"}
                       </p>
                     </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() =>
-                        currentTrack
-                          ? void commitAction(() =>
-                              setTransport({
-                                track_name: state?.transport.track_name ?? `${currentTrack.title} - ${currentTrack.artist}`,
-                                bpm,
-                                energy,
-                                playing: !state?.transport.playing,
-                              }),
-                            )
-                          : undefined
-                      }
-                      disabled={!currentTrack}
-                    >
-                      {state?.transport.playing ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
-                      {state?.transport.playing ? "Pause" : "Play"}
-                    </Button>
+                    <div className="flex flex-wrap gap-3">
+                      <TrackChip label="Preview" value={currentTrack?.audio_url ? "wavesurfer" : "unavailable"} />
+                      <TrackChip label="Markers" value={analysis ? `${analysis.beats.length} beats` : "pending"} />
+                      <TrackChip label="Sections" value={analysis ? `${analysis.sections.length}` : "pending"} />
+                    </div>
                   </div>
-
-                  {currentTrack?.audio_url ? (
-                    <audio controls preload="none" src={currentTrack.audio_url} className="mt-5 w-full opacity-90" />
-                  ) : (
-                    <p className="mt-5 text-sm text-slate-400">
-                      The selected track has no preview URL yet, but its motion profile is still available.
-                    </p>
-                  )}
+                  <p className="mt-5 text-sm text-slate-400">
+                    Use the waveform console to play, pause, scrub, and inspect beat markers before the robot layer is
+                    attached.
+                  </p>
                 </div>
               </div>
 
@@ -500,6 +512,15 @@ function App() {
             </CardContent>
           </Card>
         </section>
+
+        <WaveformConsole
+          track={currentTrack}
+          analysis={analysis}
+          currentTime={positionSeconds}
+          transportPlaying={transportPlaying}
+          onTimeChange={setPreviewPositionSeconds}
+          onTransportChange={syncTransportPlayback}
+        />
 
         <Card className="border-white/10 bg-white/[0.04]">
           <CardHeader>
