@@ -30,7 +30,7 @@ The delivery sequence is:
 - `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#29`
+- Current PR target: `#32`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -46,6 +46,7 @@ The delivery sequence is:
   - Minimal local upload/select flow exists without redesigning the page
   - Waveform is now the primary playback surface through `wavesurfer.js`
   - Spectrogram, rhythm, structure, and track-info tabs are wired to the real backend analysis payload
+  - Hardware dashboard work is in progress for arm readiness, joint visibility, and operator validation status
   - Live hardware execution is not implemented yet; the current dual-arm adapter remains dry-run only
 
 ## Workflow Rule

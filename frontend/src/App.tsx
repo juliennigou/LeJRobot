@@ -1,5 +1,5 @@
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Clock3, Disc3, Music2, Search, Sparkles, Upload } from "lucide-react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Clock3, Disc3, Music2, Search, Sparkles, Upload } from "lucide-react";
 
 import {
   fetchAnalysis,
@@ -7,24 +7,36 @@ import {
   fetchChoreography,
   fetchState,
   searchTracks,
+  setArmConnection,
   selectTrack,
   setTransport,
   startAnalysis,
   uploadTrack,
+  verifyArms,
 } from "@/lib/api";
-import type { AnalysisStatusResponse, AudioAnalysis, ChoreographyTimeline, RobotState, TrackSummary } from "@/lib/types";
+import type {
+  AnalysisStatusResponse,
+  AudioAnalysis,
+  ChoreographyTimeline,
+  RobotState,
+  TrackSummary,
+} from "@/lib/types";
 import { RhythmPanel } from "@/components/analysis/rhythm-panel";
 import { SpectrogramPanel } from "@/components/analysis/spectrogram-panel";
 import { StructurePanel } from "@/components/analysis/structure-panel";
 import { TrackInfoPanel } from "@/components/analysis/track-info-panel";
+import { HardwareStatusDashboard } from "@/components/hardware/hardware-status-dashboard";
+import { AppNavbar, type AppView } from "@/components/layout/app-navbar";
+import { WaveformConsole } from "@/components/music/waveform-console";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { WaveformConsole } from "@/components/music/waveform-console";
 import { average, formatDuration } from "@/lib/analysis-view";
 
 function App() {
+  const [activeView, setActiveView] = useState<AppView>("home");
   const [state, setState] = useState<RobotState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +55,8 @@ function App() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [previewPositionSeconds, setPreviewPositionSeconds] = useState(0);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [verifyingHardware, setVerifyingHardware] = useState(false);
+  const [hardwareBusyArmId, setHardwareBusyArmId] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -128,6 +142,7 @@ function App() {
         uploadInputRef.current.value = "";
       }
       setSelectedUploadFile(null);
+      setActiveView("home");
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -233,7 +248,6 @@ function App() {
     };
   }, [currentTrack?.track_id, currentTrack?.source]);
 
-  const activeTrackLabel = currentTrack ? `${currentTrack.title} - ${currentTrack.artist}` : "No song selected";
   const bpm = analysis ? analysis.bpm : (state?.transport.bpm ?? 120);
   const energy = analysis ? average(analysis.energy.rms) : (state?.transport.energy ?? 0.5);
   const positionSeconds = currentTrack ? previewPositionSeconds : (state?.transport.position_seconds ?? 0);
@@ -267,228 +281,237 @@ function App() {
     [bpm, currentTrack, energy],
   );
 
+  const handleVerifyHardware = useCallback(async () => {
+    setVerifyingHardware(true);
+    try {
+      await verifyArms();
+      await refreshState();
+      setError(null);
+      setActiveView("robot");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to verify hardware");
+    } finally {
+      setVerifyingHardware(false);
+    }
+  }, []);
+
+  const handleToggleArmConnection = useCallback(async (armId: string, connected: boolean) => {
+    setHardwareBusyArmId(armId);
+    try {
+      await setArmConnection(armId, connected);
+      await refreshState();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update arm connection");
+    } finally {
+      setHardwareBusyArmId(null);
+    }
+  }, []);
+
+  const searchDropdownResults = useMemo(() => {
+    const deduped = new Map<string, TrackSummary>();
+    [...localTracks, ...searchResults].forEach((track) => {
+      deduped.set(`${track.source}:${track.track_id}`, track);
+    });
+    return Array.from(deduped.values()).slice(0, 10);
+  }, [localTracks, searchResults]);
+
+  const showDropdown = searchQuery.trim().length > 0 && (searching || searchDropdownResults.length > 0 || !!searchError);
+
   return (
-    <main className="relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 lg:px-10">
+    <main className="relative min-h-screen overflow-hidden px-4 py-4 sm:px-6 lg:px-10">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(82,170,255,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(188,229,255,0.14),transparent_28%),linear-gradient(180deg,rgba(4,10,20,0.45),rgba(4,10,20,0.8))]" />
       <div className="relative mx-auto flex max-w-7xl flex-col gap-6">
-        <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <Card className="overflow-hidden border-white/10 bg-white/[0.04]">
-            <CardContent className="p-8">
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge>Music Search</Badge>
-                <Badge variant="muted">Song-First Interface</Badge>
-                <Badge variant="accent">{transportPlaying ? "Transport Live" : "Waiting on Selection"}</Badge>
-              </div>
+        <AppNavbar activeView={activeView} onChange={setActiveView} />
 
-              <div className="mt-6 max-w-3xl space-y-4">
-                <p className="hud-label">LeRobot Music Console</p>
-                <h1 className="text-4xl font-bold leading-tight text-white sm:text-5xl">
-                  Find a song, inspect its motion profile, and shape the soundtrack before the robots ever move.
-                </h1>
-                <p className="max-w-2xl text-base text-slate-300 sm:text-lg">
-                  This version is intentionally music-first. Search the catalog, pick a track, preview it, and read
-                  the BPM, energy, and structure interface that will drive the choreography layer later.
-                </p>
-              </div>
-
-              <form
-                className="mt-8 flex flex-col gap-3 sm:flex-row"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void runSearch(searchQuery);
-                }}
-              >
-                <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search by song, artist, or mood"
-                    className="h-13 w-full rounded-full border border-white/10 bg-black/30 pl-11 pr-5 text-sm text-white outline-none ring-0 placeholder:text-slate-500 focus:border-primary/60"
-                  />
-                </div>
-                <Button type="submit" size="lg" disabled={searching}>
-                  {searching ? "Searching..." : "Search Songs"}
-                </Button>
-              </form>
-
-              <div className="mt-4 rounded-[24px] border border-white/10 bg-black/20 p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="hud-label">Local Upload</p>
-                    <p className="mt-2 text-sm text-slate-400">
-                      Upload an audio file you control so it can be selected and analyzed later.
-                    </p>
-                  </div>
-                  <div className="flex flex-1 flex-col gap-3 sm:flex-row lg:max-w-xl">
-                    <input
-                      ref={uploadInputRef}
-                      type="file"
-                      accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*"
-                      onChange={(event) => setSelectedUploadFile(event.target.files?.[0] ?? null)}
-                      className="block w-full rounded-full border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
-                    />
-                    <Button type="button" size="lg" variant="secondary" disabled={uploading} onClick={() => void handleUpload()}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      {uploading ? "Uploading..." : "Upload Track"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {searchError ? (
-                <div className="mt-4 rounded-[20px] border border-destructive/30 bg-destructive/10 p-3 text-sm text-red-200">
-                  {searchError}
-                </div>
-              ) : null}
-
-              {uploadError ? (
-                <div className="mt-4 rounded-[20px] border border-destructive/30 bg-destructive/10 p-3 text-sm text-red-200">
-                  {uploadError}
-                </div>
-              ) : null}
-
-              <div className="mt-6 grid gap-3">
-                {localTracks.length ? (
-                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="hud-label">Local Library</p>
-                        <p className="mt-1 text-sm text-slate-400">Uploaded tracks stay available through the local source.</p>
-                      </div>
-                      <Badge variant="muted">{localTracks.length} local</Badge>
-                    </div>
-                    <div className="grid gap-3">
-                      {localTracks.map((track) => (
-                        <TrackResultCard key={`${track.source}-${track.track_id}`} track={track} onSelect={() => void commitAction(() => selectTrack(track, true))} />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {searchResults.map((track) => (
-                  <TrackResultCard key={`${track.source}-${track.track_id}`} track={track} onSelect={() => void commitAction(() => selectTrack(track, true))} />
-                ))}
-
-                {!searchResults.length && !searching ? (
-                  <div className="rounded-[24px] border border-dashed border-white/10 bg-black/20 p-5 text-sm text-slate-400">
-                    Search Jamendo and select a track to populate the music console.
-                  </div>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="overflow-hidden border-white/10 bg-white/[0.04]">
-            <CardContent className="flex h-full flex-col justify-between p-8">
-              <div>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="hud-label">Selected Song</p>
-                    <h2 className="mt-3 text-3xl font-semibold text-white">{activeTrackLabel}</h2>
-                    <p className="mt-2 text-sm text-slate-400">
-                      {currentTrack
-                        ? `Source ${currentTrack.source} • ${formatDuration(currentTrack.duration_seconds)}`
-                        : "Choose a song from the search results to load the music dashboard."}
-                    </p>
-                  </div>
-                  <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-slate-300">
-                    {transportPlaying ? "Playing" : "Paused"}
-                  </div>
+        {activeView === "home" ? (
+          <section className="grid gap-6">
+            <Card className="border-white/10 bg-white/[0.04]">
+              <CardContent className="p-6 sm:p-8">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge>Home</Badge>
+                  <Badge variant="accent">{currentTrack ? "Track Selected" : "Select a Song"}</Badge>
                 </div>
 
-                <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                  <StatCard label="BPM" value={analysis ? bpm.toFixed(2) : `${Math.round(bpm)}`} icon={Disc3} />
-                  <StatCard label="Energy" value={energy.toFixed(2)} icon={Sparkles} />
-                  <StatCard label="Position" value={`${positionSeconds.toFixed(1)}s`} icon={Clock3} />
-                </div>
-
-                <div className="mt-8 rounded-[28px] border border-white/10 bg-black/25 p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <p className="hud-label">Waveform Workflow</p>
-                      <p className="mt-2 text-lg font-medium text-white">
-                        {currentTrack ? "Preview is now centered in the waveform console below." : "No preview loaded"}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      <TrackChip label="Preview" value={currentTrack?.audio_url ? "wavesurfer" : "unavailable"} />
-                      <TrackChip label="Markers" value={analysis ? `${analysis.beats.length} beats` : "pending"} />
-                      <TrackChip label="Sections" value={analysis ? `${analysis.sections.length}` : "pending"} />
-                    </div>
-                  </div>
-                  <p className="mt-5 text-sm text-slate-400">
-                    Use the waveform console to play, pause, scrub, and inspect beat markers before the robot layer is
-                    attached.
+                <div className="mt-6 max-w-4xl">
+                  <h1 className="text-3xl font-bold leading-tight text-white sm:text-4xl">
+                    Search a song, upload one locally, and preview it before touching the robots.
+                  </h1>
+                  <p className="mt-3 text-sm text-slate-300 sm:text-base">
+                    Keep the first screen simple: one search field, one dropdown, one upload action, then the waveform.
                   </p>
                 </div>
+
+                <div className="mt-8">
+                  <div>
+                    <form
+                      className="flex flex-col gap-3 sm:flex-row sm:items-center"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void runSearch(searchQuery);
+                      }}
+                    >
+                      <div className="relative flex-1">
+                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          value={searchQuery}
+                          onChange={(event) => setSearchQuery(event.target.value)}
+                          placeholder="Search song, artist, or mood"
+                          className="h-14 pl-11 pr-5 text-base"
+                        />
+                      </div>
+                      <Button type="submit" size="lg" className="sm:min-w-32" disabled={searching}>
+                        {searching ? "Searching..." : "Search"}
+                      </Button>
+                    </form>
+
+                    {showDropdown ? (
+                      <div className="mt-3 overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,31,0.98),rgba(5,10,19,0.98))] shadow-[0_28px_80px_rgba(0,0,0,0.45)]">
+                        {searchError ? (
+                          <div className="border-b border-white/10 px-5 py-4 text-sm text-red-200">{searchError}</div>
+                        ) : null}
+                        {searching ? (
+                          <div className="px-5 py-4 text-sm text-slate-300">Searching tracks...</div>
+                        ) : null}
+                        {searchDropdownResults.length ? (
+                          <div className="max-h-[420px] overflow-y-auto">
+                            {searchDropdownResults.map((track) => (
+                              <DropdownTrackRow
+                                key={`${track.source}-${track.track_id}`}
+                                track={track}
+                                onSelect={() => void commitAction(() => selectTrack(track, true))}
+                              />
+                            ))}
+                          </div>
+                        ) : !searching && !searchError ? (
+                          <div className="px-5 py-4 text-sm text-slate-400">No tracks found for this query.</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="hud-label">Local Upload</p>
+                        <p className="mt-1 text-sm text-slate-400">
+                          Add your own file and it will appear in the same search dropdown.
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-3 md:w-[420px] md:flex-row">
+                      <input
+                        ref={uploadInputRef}
+                        type="file"
+                        accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*"
+                        onChange={(event) => setSelectedUploadFile(event.target.files?.[0] ?? null)}
+                        className="block w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary md:flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="md:min-w-40"
+                        disabled={uploading}
+                        onClick={() => void handleUpload()}
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
+                        {uploading ? "Uploading..." : "Upload Track"}
+                      </Button>
+                    </div>
+                    </div>
+                    {uploadError ? <p className="mt-3 text-sm text-red-200">{uploadError}</p> : null}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <TrackChip label="Selected" value={currentTrack ? currentTrack.title : "none"} />
+                  <TrackChip label="Artist" value={currentTrack ? currentTrack.artist : "none"} />
+                  <TrackChip label="Duration" value={formatDuration(currentTrack?.duration_seconds)} />
+                  <TrackChip label="Preview" value={currentTrack?.audio_url ? "ready" : "missing"} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <WaveformConsole
+              track={currentTrack}
+              analysis={analysis}
+              currentTime={positionSeconds}
+              transportPlaying={transportPlaying}
+              onTimeChange={setPreviewPositionSeconds}
+              onTransportChange={syncTransportPlayback}
+            />
+          </section>
+        ) : null}
+
+        {activeView === "analysis" ? (
+          <Card className="border-white/10 bg-white/[0.04]">
+            <CardHeader>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge>Audio Stats</Badge>
+                <Badge variant="muted">{currentTrack ? `${currentTrack.title} - ${currentTrack.artist}` : "No track selected"}</Badge>
+              </div>
+              <CardTitle className="text-3xl text-white">Audio Statistics</CardTitle>
+              <CardDescription>
+                Full analysis view for rhythm, spectrum, structure, and backend-derived track metadata.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-6 grid gap-4 sm:grid-cols-3">
+                <StatCard label="BPM" value={analysis ? bpm.toFixed(2) : `${Math.round(bpm)}`} icon={Disc3} />
+                <StatCard label="Energy" value={energy.toFixed(2)} icon={Sparkles} />
+                <StatCard label="Position" value={`${positionSeconds.toFixed(1)}s`} icon={Clock3} />
               </div>
 
-              {error ? (
-                <div className="mt-6 rounded-[20px] border border-destructive/30 bg-destructive/10 p-4 text-sm text-red-200">
-                  {error}
-                </div>
-              ) : null}
+              <Tabs defaultValue="spectrogram">
+                <TabsList className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                  <TabsTrigger value="spectrogram">Spectrogram</TabsTrigger>
+                  <TabsTrigger value="rhythm">Rhythm</TabsTrigger>
+                  <TabsTrigger value="structure">Structure</TabsTrigger>
+                  <TabsTrigger value="track-info">Track Info</TabsTrigger>
+                </TabsList>
 
-              {analysisError ? (
-                <div className="mt-4 rounded-[20px] border border-destructive/30 bg-destructive/10 p-4 text-sm text-red-200">
-                  {analysisError}
-                </div>
-              ) : null}
+                <TabsContent value="spectrogram" className="pt-6">
+                  <SpectrogramPanel analysis={analysis} currentTime={positionSeconds} />
+                </TabsContent>
+
+                <TabsContent value="rhythm" className="pt-6">
+                  <RhythmPanel analysis={analysis} choreography={cueSummary} currentTime={positionSeconds} />
+                </TabsContent>
+
+                <TabsContent value="structure" className="pt-6">
+                  <StructurePanel analysis={analysis} choreography={cueSummary} />
+                </TabsContent>
+
+                <TabsContent value="track-info" className="pt-6">
+                  <TrackInfoPanel
+                    track={currentTrack}
+                    analysis={analysis}
+                    choreography={cueSummary}
+                    analysisStatus={analysisStatus}
+                    analysisLoading={analysisLoading}
+                    analysisError={analysisError}
+                  />
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
-        </section>
+        ) : null}
 
-        <WaveformConsole
-          track={currentTrack}
-          analysis={analysis}
-          currentTime={positionSeconds}
-          transportPlaying={transportPlaying}
-          onTimeChange={setPreviewPositionSeconds}
-          onTransportChange={syncTransportPlayback}
-        />
+        {activeView === "robot" ? (
+          <HardwareStatusDashboard
+            state={state}
+            loading={loading}
+            verifying={verifyingHardware}
+            busyArmId={hardwareBusyArmId}
+            onVerify={() => void handleVerifyHardware()}
+            onToggleConnection={(armId, connected) => void handleToggleArmConnection(armId, connected)}
+          />
+        ) : null}
 
-        <Card className="border-white/10 bg-white/[0.04]">
-          <CardHeader>
-            <CardTitle>Track Analysis</CardTitle>
-            <CardDescription>
-              Music-facing tabs only. This is where the interface should stay clean before the robot layer comes in.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="spectrogram">
-              <TabsList>
-                <TabsTrigger value="spectrogram">Spectrogram</TabsTrigger>
-                <TabsTrigger value="rhythm">Rhythm</TabsTrigger>
-                <TabsTrigger value="structure">Structure</TabsTrigger>
-                <TabsTrigger value="track-info">Track Info</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="spectrogram" className="pt-6">
-                <SpectrogramPanel analysis={analysis} currentTime={positionSeconds} />
-              </TabsContent>
-
-              <TabsContent value="rhythm" className="pt-6">
-                <RhythmPanel analysis={analysis} choreography={cueSummary} currentTime={positionSeconds} />
-              </TabsContent>
-
-              <TabsContent value="structure" className="pt-6">
-                <StructurePanel analysis={analysis} choreography={cueSummary} />
-              </TabsContent>
-
-              <TabsContent value="track-info" className="pt-6">
-                <TrackInfoPanel
-                  track={currentTrack}
-                  analysis={analysis}
-                  choreography={cueSummary}
-                  analysisStatus={analysisStatus}
-                  analysisLoading={analysisLoading}
-                  analysisError={analysisError}
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+        {error || analysisError ? (
+          <Card className="border-destructive/20 bg-destructive/10">
+            <CardContent className="p-4 text-sm text-red-100">{error ?? analysisError}</CardContent>
+          </Card>
+        ) : null}
       </div>
     </main>
   );
@@ -501,7 +524,7 @@ function StatCard({
 }: {
   label: string;
   value: string;
-  icon: typeof Activity;
+  icon: typeof Disc3;
 }) {
   return (
     <div className="rounded-[24px] border border-white/10 bg-black/25 p-4">
@@ -523,33 +546,33 @@ function TrackChip({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TrackResultCard({ track, onSelect }: { track: TrackSummary; onSelect: () => void }) {
+function DropdownTrackRow({
+  track,
+  onSelect,
+}: {
+  track: TrackSummary;
+  onSelect: () => void;
+}) {
   return (
     <button
-      className="group rounded-[26px] border border-white/10 bg-black/25 p-5 text-left transition hover:border-primary/40 hover:bg-white/[0.06]"
+      className="flex w-full items-center justify-between gap-4 border-b border-white/10 px-5 py-4 text-left transition last:border-b-0 hover:bg-white/[0.05]"
       onClick={onSelect}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-              <Music2 className="h-4 w-4" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="truncate text-lg font-semibold text-white">{track.title}</p>
-                <Badge variant={track.source === "local" ? "accent" : "muted"}>{track.source}</Badge>
-              </div>
-              <p className="truncate text-sm text-slate-400">{track.artist}</p>
-            </div>
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+            <Music2 className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold text-white">{track.title}</p>
+            <p className="truncate text-sm text-slate-400">{track.artist}</p>
           </div>
         </div>
-        <span className="whitespace-nowrap text-sm text-slate-400">{formatDuration(track.duration_seconds)}</span>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <TrackChip label="BPM" value={`${track.motion_profile.bpm}`} />
-        <TrackChip label="Energy" value={track.motion_profile.energy.toFixed(2)} />
-        <TrackChip label="Pattern" value={track.motion_profile.pattern_bias} />
+
+      <div className="flex shrink-0 items-center gap-3">
+        <Badge variant={track.source === "local" ? "accent" : "muted"}>{track.source}</Badge>
+        <span className="text-sm text-slate-400">{formatDuration(track.duration_seconds)}</span>
       </div>
     </button>
   );
