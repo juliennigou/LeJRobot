@@ -8,6 +8,11 @@ from pathlib import Path
 from time import monotonic
 
 from .models import (
+    AnalysisStartResponse,
+    AnalysisStatus,
+    AnalysisStatusResponse,
+    AudioAnalysis,
+    ChoreographyTimeline,
     DanceMode,
     PulseUpdate,
     RobotConfig,
@@ -15,7 +20,9 @@ from .models import (
     SceneName,
     ServoState,
     ServoUpdate,
+    TrackReference,
     TrackSelection,
+    TrackSource,
     TransportState,
     TransportUpdate,
 )
@@ -100,6 +107,9 @@ class RobotStateStore:
         self.started_at = monotonic()
         self.last_tick = monotonic()
         self.scene = SceneName.IDLE
+        self.analysis_statuses: dict[tuple[TrackSource, str], AnalysisStatusResponse] = {}
+        self.analysis_results: dict[tuple[TrackSource, str], AudioAnalysis] = {}
+        self.choreography_results: dict[tuple[TrackSource, str], ChoreographyTimeline] = {}
         self.servos = [
             ServoRuntime(id=servo_id, name=name, angle=0.0, target_angle=0.0)
             for servo_id, name in SERVO_LAYOUT
@@ -154,6 +164,29 @@ class RobotStateStore:
         scene_targets = SCENES[scene]
         for servo in self.servos:
             servo.target_angle = scene_targets[servo.name]
+
+    def _track_key(self, source: TrackSource, track_id: str) -> tuple[TrackSource, str]:
+        return (source, track_id)
+
+    def _status_for_reference(self, payload: TrackReference) -> AnalysisStatusResponse:
+        key = self._track_key(payload.source, payload.track_id)
+        status = self.analysis_statuses.get(key)
+        if status is not None:
+            return status
+
+        current_track = self.transport.current_track
+        if current_track and current_track.track_id == payload.track_id and current_track.source == payload.source:
+            status = AnalysisStatusResponse(
+                track_id=payload.track_id,
+                source=payload.source,
+                status=AnalysisStatus.NONE,
+                progress=0,
+                error=None,
+            )
+            self.analysis_statuses[key] = status
+            return status
+
+        raise ValueError(f"Unknown track reference: {payload.source}:{payload.track_id}")
 
     def snapshot(self) -> RobotState:
         self._tick()
@@ -241,6 +274,18 @@ class RobotStateStore:
 
     def select_track(self, payload: TrackSelection) -> RobotState:
         track = payload.track
+        key = self._track_key(track.source, track.track_id)
+        status = self.analysis_statuses.get(key)
+        if status is None:
+            status = AnalysisStatusResponse(
+                track_id=track.track_id,
+                source=track.source,
+                status=AnalysisStatus.NONE,
+                progress=0,
+                error=None,
+            )
+            self.analysis_statuses[key] = status
+        track.analysis_status = status.status
         self.transport.current_track = track
         self.transport.track_name = f"{track.title} - {track.artist}"
         self.transport.bpm = track.motion_profile.bpm
@@ -260,3 +305,45 @@ class RobotStateStore:
             self.mode = DanceMode.AUTONOMOUS
 
         return self.snapshot()
+
+    def current_track(self):
+        track = self.transport.current_track
+        if track is None:
+            return None
+
+        status = self.analysis_statuses.get(self._track_key(track.source, track.track_id))
+        if status is not None:
+            track.analysis_status = status.status
+        return track
+
+    def queue_analysis(self, payload: TrackReference) -> AnalysisStartResponse:
+        status = AnalysisStatusResponse(
+            track_id=payload.track_id,
+            source=payload.source,
+            status=AnalysisStatus.QUEUED,
+            progress=0,
+            error=None,
+        )
+        self.analysis_statuses[self._track_key(payload.source, payload.track_id)] = status
+
+        current_track = self.transport.current_track
+        if current_track and current_track.track_id == payload.track_id and current_track.source == payload.source:
+            current_track.analysis_status = AnalysisStatus.QUEUED
+
+        return AnalysisStartResponse(
+            track_id=payload.track_id,
+            source=payload.source,
+            status=AnalysisStatus.QUEUED,
+            progress=0,
+        )
+
+    def get_analysis_status(self, payload: TrackReference) -> AnalysisStatusResponse:
+        return self._status_for_reference(payload)
+
+    def get_analysis(self, payload: TrackReference) -> AudioAnalysis | None:
+        self._status_for_reference(payload)
+        return self.analysis_results.get(self._track_key(payload.source, payload.track_id))
+
+    def get_choreography(self, payload: TrackReference) -> ChoreographyTimeline | None:
+        self._status_for_reference(payload)
+        return self.choreography_results.get(self._track_key(payload.source, payload.track_id))

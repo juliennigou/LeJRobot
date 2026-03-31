@@ -1,4 +1,16 @@
-import type { DanceMode, RobotConfig, RobotState, SceneName, TrackSearchResponse, TrackSummary } from "@/lib/types";
+import type {
+  AnalysisStartResponse,
+  AnalysisStatusResponse,
+  AudioAnalysis,
+  ChoreographyTimeline,
+  DanceMode,
+  RobotConfig,
+  RobotState,
+  SceneName,
+  TrackSearchResponse,
+  TrackSource,
+  TrackSummary,
+} from "@/lib/types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -86,4 +98,27 @@ export function selectTrack(track: TrackSummary, autoplay = true) {
     method: "POST",
     body: JSON.stringify({ track, autoplay }),
   });
+}
+
+export function fetchCurrentTrack() {
+  return request<TrackSummary | null>("/api/tracks/current");
+}
+
+export function startAnalysis(trackId: string, source: TrackSource) {
+  return request<AnalysisStartResponse>("/api/analysis/start", {
+    method: "POST",
+    body: JSON.stringify({ track_id: trackId, source }),
+  });
+}
+
+export function fetchAnalysisStatus(trackId: string, source: TrackSource) {
+  return request<AnalysisStatusResponse>(`/api/analysis/${source}/${trackId}/status`);
+}
+
+export function fetchAnalysis(trackId: string, source: TrackSource) {
+  return request<AudioAnalysis>(`/api/analysis/${source}/${trackId}`);
+}
+
+export function fetchChoreography(trackId: string, source: TrackSource) {
+  return request<ChoreographyTimeline>(`/api/choreography/${source}/${trackId}`);
 }

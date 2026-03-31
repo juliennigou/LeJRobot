@@ -5,14 +5,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .music import JamendoTrackProvider, TrackProviderError
 from .models import (
+    AnalysisStartRequest,
+    AnalysisStartResponse,
+    AnalysisStatus,
+    AnalysisStatusResponse,
+    AudioAnalysis,
+    ChoreographyTimeline,
     ModeUpdate,
     PulseUpdate,
     RobotConfig,
     RobotState,
     SceneUpdate,
     ServoUpdate,
+    TrackReference,
     TrackSearchResponse,
     TrackSelection,
+    TrackSummary,
     TrackSource,
     TransportUpdate,
 )
@@ -94,6 +102,60 @@ def search_tracks(
     return TrackSearchResponse(query=q, source=source, results=results)
 
 
+@app.get("/api/tracks/current", response_model=TrackSummary | None)
+def get_current_track() -> TrackSummary | None:
+    return store.current_track()
+
+
 @app.post("/api/tracks/select", response_model=RobotState)
 def select_track(payload: TrackSelection) -> RobotState:
     return store.select_track(payload)
+
+
+@app.post("/api/analysis/start", response_model=AnalysisStartResponse)
+def start_analysis(payload: AnalysisStartRequest) -> AnalysisStartResponse:
+    return store.queue_analysis(TrackReference(track_id=payload.track_id, source=payload.source))
+
+
+@app.get("/api/analysis/{source}/{track_id}/status", response_model=AnalysisStatusResponse)
+def get_analysis_status(source: TrackSource, track_id: str) -> AnalysisStatusResponse:
+    try:
+        return store.get_analysis_status(TrackReference(track_id=track_id, source=source))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/analysis/{source}/{track_id}", response_model=AudioAnalysis)
+def get_analysis(source: TrackSource, track_id: str) -> AudioAnalysis:
+    reference = TrackReference(track_id=track_id, source=source)
+    try:
+        analysis = store.get_analysis(reference)
+        status = store.get_analysis_status(reference)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if analysis is not None:
+        return analysis
+
+    if status.status in {AnalysisStatus.QUEUED, AnalysisStatus.PROCESSING}:
+        raise HTTPException(status_code=409, detail=f"Analysis is {status.status}")
+
+    raise HTTPException(status_code=404, detail="Analysis is not available yet")
+
+
+@app.get("/api/choreography/{source}/{track_id}", response_model=ChoreographyTimeline)
+def get_choreography(source: TrackSource, track_id: str) -> ChoreographyTimeline:
+    reference = TrackReference(track_id=track_id, source=source)
+    try:
+        choreography = store.get_choreography(reference)
+        status = store.get_analysis_status(reference)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if choreography is not None:
+        return choreography
+
+    if status.status in {AnalysisStatus.QUEUED, AnalysisStatus.PROCESSING}:
+        raise HTTPException(status_code=409, detail=f"Choreography is waiting on analysis: {status.status}")
+
+    raise HTTPException(status_code=404, detail="Choreography is not available yet")

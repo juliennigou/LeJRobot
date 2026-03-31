@@ -25,6 +25,47 @@ class TrackSource(str, Enum):
     YOUTUBE = "youtube"
 
 
+class AnalysisStatus(str, Enum):
+    NONE = "none"
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    READY = "ready"
+    ERROR = "error"
+
+
+class SectionLabel(str, Enum):
+    INTRO = "intro"
+    VERSE = "verse"
+    CHORUS = "chorus"
+    BRIDGE = "bridge"
+    BREAK = "break"
+    OUTRO = "outro"
+    UNKNOWN = "unknown"
+
+
+class MotionCueKind(str, Enum):
+    BEAT = "beat"
+    DOWNBEAT = "downbeat"
+    ACCENT = "accent"
+    SECTION_CHANGE = "section_change"
+    HOLD = "hold"
+
+
+class PoseFamily(str, Enum):
+    GROOVE = "groove"
+    SWEEP = "sweep"
+    PUNCH = "punch"
+    FLOAT = "float"
+
+
+class SymmetryRole(str, Enum):
+    LEAD = "lead"
+    FOLLOW = "follow"
+    MIRROR = "mirror"
+    UNISON = "unison"
+    CONTRAST = "contrast"
+
+
 class RobotConfig(BaseModel):
     assembly: str = "Follower"
     follower_id: str = "follower_arm"
@@ -49,6 +90,7 @@ class TrackSummary(BaseModel):
     artwork_url: str | None = None
     audio_url: str | None = None
     external_url: str | None = None
+    analysis_status: AnalysisStatus = AnalysisStatus.NONE
     motion_profile: MotionProfile
 
 
@@ -121,3 +163,98 @@ class TrackSearchResponse(BaseModel):
 class TrackSelection(BaseModel):
     track: TrackSummary
     autoplay: bool = True
+
+
+class TrackReference(BaseModel):
+    track_id: str
+    source: TrackSource
+
+
+class SongSection(BaseModel):
+    label: SectionLabel = SectionLabel.UNKNOWN
+    start_seconds: float = Field(ge=0.0)
+    end_seconds: float = Field(ge=0.0)
+    energy_mean: float = Field(ge=0.0, le=1.0)
+    density_mean: float = Field(ge=0.0, le=1.0)
+
+
+class EnergyEnvelope(BaseModel):
+    frame_hz: float = Field(gt=0.0)
+    rms: list[float] = Field(default_factory=list)
+    onset_strength: list[float] = Field(default_factory=list)
+
+
+class BandEnvelope(BaseModel):
+    frame_hz: float = Field(gt=0.0)
+    low: list[float] = Field(default_factory=list)
+    mid: list[float] = Field(default_factory=list)
+    high: list[float] = Field(default_factory=list)
+
+
+class SpectralSummary(BaseModel):
+    centroid: list[float] = Field(default_factory=list)
+    bandwidth: list[float] = Field(default_factory=list)
+    rolloff: list[float] = Field(default_factory=list)
+
+
+class WaveformSummary(BaseModel):
+    peaks: list[float] = Field(default_factory=list)
+    bucket_count: int = Field(ge=0)
+
+
+class MotionCue(BaseModel):
+    time: float = Field(ge=0.0)
+    kind: MotionCueKind
+    intensity: float = Field(ge=0.0, le=1.0)
+    pose_family: PoseFamily = PoseFamily.GROOVE
+    amplitude: float = Field(default=0.5, ge=0.0, le=1.0)
+    speed: float = Field(default=0.5, ge=0.0, le=1.0)
+    symmetry_role: SymmetryRole = SymmetryRole.UNISON
+    notes: str | None = None
+
+
+class ChoreographyTimeline(BaseModel):
+    track_id: str
+    source: TrackSource
+    frame_hz: float = Field(gt=0.0)
+    global_cues: list[MotionCue] = Field(default_factory=list)
+    arm_left_cues: list[MotionCue] = Field(default_factory=list)
+    arm_right_cues: list[MotionCue] = Field(default_factory=list)
+
+
+class AudioAnalysis(BaseModel):
+    track_id: str
+    source: TrackSource
+    duration_seconds: float = Field(ge=0.0)
+    sample_rate: int = Field(gt=0)
+    bpm: float = Field(ge=0.0)
+    tempo_confidence: float = Field(ge=0.0, le=1.0)
+    beats: list[float] = Field(default_factory=list)
+    downbeats: list[float] = Field(default_factory=list)
+    sections: list[SongSection] = Field(default_factory=list)
+    energy: EnergyEnvelope
+    bands: BandEnvelope
+    spectral: SpectralSummary
+    waveform: WaveformSummary
+    choreography: ChoreographyTimeline
+    generated_at: str
+
+
+class AnalysisStartRequest(BaseModel):
+    track_id: str
+    source: TrackSource
+
+
+class AnalysisStartResponse(BaseModel):
+    track_id: str
+    source: TrackSource
+    status: AnalysisStatus
+    progress: int = Field(ge=0, le=100)
+
+
+class AnalysisStatusResponse(BaseModel):
+    track_id: str
+    source: TrackSource
+    status: AnalysisStatus
+    progress: int = Field(ge=0, le=100)
+    error: str | None = None
