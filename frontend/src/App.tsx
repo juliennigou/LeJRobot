@@ -31,6 +31,7 @@ import { WaveformConsole } from "@/components/music/waveform-console";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { average, formatDuration } from "@/lib/analysis-view";
 
@@ -329,24 +330,22 @@ function App() {
               <CardContent className="p-6 sm:p-8">
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge>Home</Badge>
-                  <Badge variant="muted">Minimal Search Flow</Badge>
                   <Badge variant="accent">{currentTrack ? "Track Selected" : "Select a Song"}</Badge>
                 </div>
 
-                <div className="mt-6 max-w-3xl">
-                  <h1 className="text-4xl font-bold leading-tight text-white sm:text-5xl">
-                    Search a song, load it fast, and preview the wave before touching the robots.
+                <div className="mt-6 max-w-4xl">
+                  <h1 className="text-3xl font-bold leading-tight text-white sm:text-4xl">
+                    Search a song, upload one locally, and preview it before touching the robots.
                   </h1>
-                  <p className="mt-4 text-base text-slate-300 sm:text-lg">
-                    The home page stays minimal: search, local upload, dropdown selection, then immediate playback on
-                    the waveform surface.
+                  <p className="mt-3 text-sm text-slate-300 sm:text-base">
+                    Keep the first screen simple: one search field, one dropdown, one upload action, then the waveform.
                   </p>
                 </div>
 
-                <div className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-                  <div className="relative">
+                <div className="mt-8">
+                  <div>
                     <form
-                      className="flex flex-col gap-3 sm:flex-row"
+                      className="flex flex-col gap-3 sm:flex-row sm:items-center"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void runSearch(searchQuery);
@@ -354,20 +353,20 @@ function App() {
                     >
                       <div className="relative flex-1">
                         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input
+                        <Input
                           value={searchQuery}
                           onChange={(event) => setSearchQuery(event.target.value)}
                           placeholder="Search song, artist, or mood"
-                          className="h-13 w-full rounded-full border border-white/10 bg-black/30 pl-11 pr-5 text-sm text-white outline-none ring-0 placeholder:text-slate-500 focus:border-primary/60"
+                          className="h-14 pl-11 pr-5 text-base"
                         />
                       </div>
-                      <Button type="submit" size="lg" disabled={searching}>
+                      <Button type="submit" size="lg" className="sm:min-w-32" disabled={searching}>
                         {searching ? "Searching..." : "Search"}
                       </Button>
                     </form>
 
                     {showDropdown ? (
-                      <div className="absolute left-0 right-0 top-[calc(100%+12px)] z-30 overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,31,0.98),rgba(5,10,19,0.98))] shadow-[0_28px_80px_rgba(0,0,0,0.45)]">
+                      <div className="mt-3 overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,18,31,0.98),rgba(5,10,19,0.98))] shadow-[0_28px_80px_rgba(0,0,0,0.45)]">
                         {searchError ? (
                           <div className="border-b border-white/10 px-5 py-4 text-sm text-red-200">{searchError}</div>
                         ) : null}
@@ -391,23 +390,33 @@ function App() {
                     ) : null}
                   </div>
 
-                  <div className="rounded-[28px] border border-white/10 bg-black/20 p-4">
-                    <p className="hud-label">Local Upload</p>
-                    <p className="mt-2 text-sm text-slate-400">
-                      Add your own file and it becomes selectable from the same search dropdown.
-                    </p>
-                    <div className="mt-4 grid gap-3">
+                  <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="hud-label">Local Upload</p>
+                        <p className="mt-1 text-sm text-slate-400">
+                          Add your own file and it will appear in the same search dropdown.
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-3 md:w-[420px] md:flex-row">
                       <input
                         ref={uploadInputRef}
                         type="file"
                         accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*"
                         onChange={(event) => setSelectedUploadFile(event.target.files?.[0] ?? null)}
-                        className="block w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
+                        className="block w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary md:flex-1"
                       />
-                      <Button type="button" variant="secondary" disabled={uploading} onClick={() => void handleUpload()}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="md:min-w-40"
+                        disabled={uploading}
+                        onClick={() => void handleUpload()}
+                      >
                         <Upload className="mr-2 h-4 w-4" />
                         {uploading ? "Uploading..." : "Upload Track"}
                       </Button>
+                    </div>
                     </div>
                     {uploadError ? <p className="mt-3 text-sm text-red-200">{uploadError}</p> : null}
                   </div>
