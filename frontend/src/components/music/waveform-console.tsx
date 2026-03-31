@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Pause, Play, TimerReset, Waves } from "lucide-react";
+import { Pause, Play, Square, Waves } from "lucide-react";
 
 import type { AudioAnalysis, SongSection, TrackSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -213,12 +213,14 @@ export function WaveformConsole({
               variant="ghost"
               disabled={!track?.audio_url}
               onClick={() => {
+                waveSurferRef.current?.pause();
                 waveSurferRef.current?.setTime(0);
                 onTimeChange(0);
+                onTransportChange(false);
               }}
             >
-              <TimerReset className="mr-2 h-4 w-4" />
-              Restart
+              <Square className="mr-2 h-4 w-4" />
+              Stop
             </Button>
           </div>
         </div>
