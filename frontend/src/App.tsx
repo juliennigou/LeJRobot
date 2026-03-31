@@ -26,7 +26,9 @@ import type {
   AnalysisStatusResponse,
   AudioAnalysis,
   ChoreographyTimeline,
+  ExecutionMode,
   MovementDefinition,
+  MovementTargetScope,
   RobotState,
   TrackSummary,
 } from "@/lib/types";
@@ -95,6 +97,8 @@ function App() {
   const [hardwareBusyArmId, setHardwareBusyArmId] = useState<string | null>(null);
   const [hardwareActionBusy, setHardwareActionBusy] = useState<string | null>(null);
   const [selectedMovementArmId, setSelectedMovementArmId] = useState<string | null>(null);
+  const [movementTargetScope, setMovementTargetScope] = useState<MovementTargetScope>("single");
+  const [movementExecutionMode, setMovementExecutionMode] = useState<ExecutionMode>("mirror");
   const [movementBusyAction, setMovementBusyAction] = useState<string | null>(null);
   const [movementTunings, setMovementTunings] = useState<Record<string, MovementTuning>>({});
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -461,7 +465,7 @@ function App() {
 
   const handleRunMovement = useCallback(
     async (movementId: string) => {
-      if (!selectedMovementArmId) {
+      if (movementTargetScope === "single" && !selectedMovementArmId) {
         setError("Select an arm before running a movement.");
         return;
       }
@@ -470,14 +474,22 @@ function App() {
       try {
         const movement = movementLibrary?.movements.find((entry) => entry.movement_id === movementId);
         const tuning = movement ? movementTunings[movementId] ?? defaultMovementTuning(movement) : null;
-        await runMovement(selectedMovementArmId, movementId, {
+        await runMovement(
+          movementId,
+          {
+            target_scope: movementTargetScope,
+            execution_mode: movementExecutionMode,
+            arm_id: movementTargetScope === "single" ? selectedMovementArmId ?? undefined : undefined,
+          },
+          {
           preset_id: tuning?.presetId,
           frequency_hz: tuning?.frequencyHz,
           cycles: tuning?.cycles,
           amplitude_scale: tuning?.amplitudeScale,
           softness: tuning?.softness,
           asymmetry: tuning ? clampAsymmetry(tuning.asymmetry) : undefined,
-        });
+          },
+        );
         await refreshState();
         setError(null);
       } catch (err) {
@@ -486,7 +498,7 @@ function App() {
         setMovementBusyAction(null);
       }
     },
-    [movementLibrary, movementTunings, selectedMovementArmId],
+    [movementExecutionMode, movementLibrary, movementTargetScope, movementTunings, selectedMovementArmId],
   );
 
   const handleStopMovement = useCallback(async () => {
@@ -695,9 +707,13 @@ function App() {
             library={movementLibrary}
             arms={state?.dual_arm.arms ?? []}
             selectedArmId={selectedMovementArmId}
+            targetScope={movementTargetScope}
+            executionMode={movementExecutionMode}
             movementTunings={movementTunings}
             busyAction={movementBusyAction}
             onSelectArm={setSelectedMovementArmId}
+            onSelectTargetScope={setMovementTargetScope}
+            onSelectExecutionMode={setMovementExecutionMode}
             onSelectPreset={(movementId, presetId) =>
               updateMovementTuning(movementId, (current) => {
                 const movement = movementLibrary?.movements.find((entry) => entry.movement_id === movementId);

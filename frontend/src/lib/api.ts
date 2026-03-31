@@ -102,8 +102,12 @@ export function fetchMovementLibrary() {
 }
 
 export function runMovement(
-  armId: string,
   movementId: string,
+  target: {
+    target_scope?: "single" | "both";
+    execution_mode?: "mirror" | "unison" | "call_response" | "asymmetric";
+    arm_id?: string;
+  },
   options?: {
     preset_id?: string;
     frequency_hz?: number;
@@ -115,7 +119,7 @@ export function runMovement(
 ) {
   return request<MovementLibraryState>("/api/movements/run", {
     method: "POST",
-    body: JSON.stringify({ arm_id: armId, movement_id: movementId, ...options }),
+    body: JSON.stringify({ movement_id: movementId, ...target, ...options }),
   });
 }
 

@@ -27,11 +27,11 @@ The delivery sequence is:
 - `#30` Enforce live safety supervisor for torque, neutral, emergency stop, and step limits [done]
 - `#32` Add manual hardware validation controls and status surfaces [done]
 - `#38` Add live 2D dual-arm visualizer to robot dashboard [done]
-- `#34` Execute choreography on one live SO-101 arm
+- `#34` Execute choreography on one live SO-101 arm [done]
 - `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#45`
+- Current PR target: `#33`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -45,8 +45,9 @@ The delivery sequence is:
   - Active bus sessions are now distinct from verification-ready state; `connected=true` means a live telemetry session is open
   - The backend now requires `feetech-servo-sdk` for real SO-101 telemetry through LeRobot
   - `#30` now enforces torque on/off, neutral moves, emergency stop, emergency reset, and live joint step limiting through the real Feetech write path
-  - `#34` now adds a movement library abstraction and a first executable oscillator-driven `wave` movement for one live arm
+  - `#34` now adds a movement library abstraction and live oscillator-driven gestures for one arm, including `wave` and `wrist_lean`
   - `#45` now adds terminal-first tooling to record manual SO-101 joint demonstrations, replay them through the existing safety path, and fit a cleaner wave preset from recordings
+  - `#33` now adds synchronized movement playback for both arms with `single`, `both-unison`, and `both-mirror` targeting
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
@@ -57,7 +58,8 @@ The delivery sequence is:
   - Robot dashboard now shows real per-arm telemetry once a live connection is opened
   - `#38` added a responsive side-by-side 2D visualizer so both arms can be seen moving from live telemetry
   - `#30` added dashboard controls for dry-run, torque, neutral, and emergency-stop management
-  - `#34` adds a dedicated Movement Library page with arm selection, wave preset selection, and runtime tuning controls for the first live gesture
+  - `#34` adds a dedicated Movement Library page with arm selection, per-movement tuning, and live gesture execution
+  - `#33` extends the Movement Library page with single-arm vs dual-arm targeting and `mirror` / `unison` playback controls
   - `#45` adds terminal scripts for record/replay/fitting so manual observations can drive later motion refinement outside the UI
   - Music-driven choreography execution is not implemented yet, but the app can now execute a bounded library gesture on one live arm
 
