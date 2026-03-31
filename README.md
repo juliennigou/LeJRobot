@@ -107,10 +107,11 @@ The backend now exposes a dry-run dual-arm execution surface for your SO-101 lea
 - `POST /api/arms/{arm_id}/connect` now opens a real read-only telemetry session for the selected arm
 - `POST /api/arms/execution-mode` switches between `mirror`, `unison`, `call_response`, and `asymmetric`
 - `POST /api/arms/{arm_id}/safety` updates per-arm dry-run/safety settings plus joint overrides for offsets, inversion, limits, and speed caps
-- `POST /api/arms/emergency-stop` disables torque in the adapter layer before any real motor writes are attempted
-- `POST /api/arms/neutral` moves the planning state back to the neutral scene
+- `POST /api/arms/emergency-stop` holds the current live pose and disables torque immediately on connected arms
+- `POST /api/arms/emergency-reset` clears emergency-stop state so torque can be re-enabled explicitly
+- `POST /api/arms/neutral` moves connected arms toward the neutral pose through the same live step-limited safety envelope used for future motion writes
 
-This is still a planning and validation layer for motion writes. It does not send choreography to real hardware yet, but it now opens real SO-101 read-only telemetry sessions and reports live joint values for each arm.
+This is still a planning and validation layer for choreography writes. It now opens real SO-101 telemetry sessions, exposes live safety controls, and can issue bounded neutral/safety commands without starting dance playback.
 
 Install or refresh backend dependencies after pulling:
 
