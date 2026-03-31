@@ -732,6 +732,9 @@ function App() {
             schedule={currentSchedule}
             autonomy={state?.autonomy ?? { status: "idle", note: "Autonomous scheduler idle." }}
             autonomyBusy={autonomyBusy}
+            arms={state?.dual_arm.arms ?? []}
+            verifyingHardware={verifyingHardware}
+            hardwareBusy={hardwareBusyArmId !== null || hardwareActionBusy !== null}
             currentTime={positionSeconds}
             transportPlaying={transportPlaying}
             onTimeChange={setPreviewPositionSeconds}
@@ -743,6 +746,9 @@ function App() {
             }}
             onStartAutonomy={() => void handleStartAutonomy()}
             onStopAutonomy={() => void handleStopAutonomy()}
+            onVerifyHardware={() => void handleVerifyHardware()}
+            onConnectAll={() => void handleSetAllArmConnections(true)}
+            onDisconnectAll={() => void handleSetAllArmConnections(false)}
           />
         ) : null}
 
