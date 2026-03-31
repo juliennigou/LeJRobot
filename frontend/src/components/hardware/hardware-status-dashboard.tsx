@@ -72,12 +72,11 @@ export function HardwareStatusDashboard({
 }) {
   const arms = state?.dual_arm.arms ?? [];
   const execution = state?.dual_arm.execution;
-  const servos = state?.servos ?? [];
-  const liveServoState = servoRuntimeMap(servos);
   const connectedCount = arms.filter((arm) => arm.connected).length;
   const readyCount = arms.filter((arm) => arm.verification.status === "ready").length;
+  const allTelemetry = arms.flatMap((arm) => arm.telemetry);
   const averageLoad =
-    servos.length > 0 ? servos.reduce((sum, servo) => sum + servo.load_pct, 0) / servos.length : 0;
+    allTelemetry.length > 0 ? allTelemetry.reduce((sum, servo) => sum + servo.load_pct, 0) / allTelemetry.length : 0;
 
   return (
     <section className="grid gap-6">
@@ -86,7 +85,7 @@ export function HardwareStatusDashboard({
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <Badge>Hardware Readiness</Badge>
-              <Badge variant="muted">{loading ? "Refreshing" : "Live State"}</Badge>
+              <Badge variant="muted">{loading ? "Refreshing" : "Telemetry Ready"}</Badge>
               <Badge variant="accent">{execution?.dry_run_required ? "Dry Run Required" : "Live Ready"}</Badge>
             </div>
             <CardTitle className="mt-4 text-3xl text-white">Arm and Motor Dashboard</CardTitle>
@@ -117,52 +116,23 @@ export function HardwareStatusDashboard({
           <CardHeader>
             <CardTitle className="text-white">Live Motor Bus</CardTitle>
             <CardDescription className="text-slate-300">
-              The current runtime state for the 6-motor execution bus: name, target, angle, load, heat, and torque.
+              Real motor telemetry appears only after a live arm connection is opened. Verification alone does not
+              stream joint values.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {servos.map((servo) => (
-              <div
-                key={servo.id}
-                className="rounded-[22px] border border-white/10 bg-black/25 p-4 shadow-[0_12px_34px_rgba(2,8,23,0.24)]"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-3">
-                      <Badge variant="muted">Servo {servo.id}</Badge>
-                      <p className="text-base font-semibold text-white">{titleize(servo.name)}</p>
-                    </div>
-                    <p className="mt-2 text-xs uppercase tracking-[0.24em] text-slate-500">{servo.motion_phase}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <MetricPill label="Angle" value={`${servo.angle.toFixed(1)}°`} icon={Gauge} />
-                    <MetricPill label="Target" value={`${servo.target_angle.toFixed(1)}°`} icon={Target} />
-                    <MetricPill label="Temp" value={`${servo.temperature_c.toFixed(1)}°C`} icon={Thermometer} />
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px] sm:items-center">
-                  <div>
-                    <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.24em] text-slate-500">
-                      <span>Load</span>
-                      <span>{servo.load_pct.toFixed(1)}%</span>
-                    </div>
-                    <Progress value={servo.load_pct} className="h-2.5 bg-white/5" />
-                  </div>
-                  <div className="flex justify-start sm:justify-end">
-                    <Badge
-                      className={
-                        servo.torque_enabled
-                          ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
-                          : "border-slate-300/15 bg-slate-400/10 text-slate-200"
-                      }
-                    >
-                      {servo.torque_enabled ? "Torque On" : "Torque Off"}
-                    </Badge>
-                  </div>
-                </div>
+            {arms.some((arm) => arm.telemetry_live && arm.telemetry.length > 0) ? (
+              arms
+                .filter((arm) => arm.telemetry_live && arm.telemetry.length > 0)
+                .map((arm) => (
+                  <TelemetryGroup key={arm.arm_id} arm={arm} />
+                ))
+            ) : (
+              <div className="rounded-[22px] border border-dashed border-white/10 bg-black/20 p-6 text-sm text-slate-400">
+                Open a live connection on one of the verified arms to stream real joint positions, load, and
+                temperature from the SO-101 bus.
               </div>
-            ))}
+            )}
           </CardContent>
         </Card>
 
@@ -180,6 +150,7 @@ export function HardwareStatusDashboard({
                         <Badge>{titleize(arm.arm_type)}</Badge>
                         <Badge variant="muted">{titleize(arm.channel)} Channel</Badge>
                         <Badge className={tone.badgeClass}>{titleize(arm.verification.status)}</Badge>
+                        <Badge variant="muted">{arm.connected ? "Telemetry Connected" : "Telemetry Offline"}</Badge>
                       </div>
                       <CardTitle className="mt-4 text-2xl text-white">{arm.arm_id}</CardTitle>
                       <CardDescription className="text-slate-300">
@@ -215,6 +186,15 @@ export function HardwareStatusDashboard({
                             label="Joint Coverage"
                             value={`${arm.verification.detected_joint_count}/${arm.verification.expected_joint_count}`}
                           />
+                          <DashboardField
+                            label="Telemetry"
+                            value={
+                              arm.telemetry_live
+                                ? `Live${arm.telemetry_updated_at ? ` • ${new Date(arm.telemetry_updated_at).toLocaleTimeString()}` : ""}`
+                                : arm.telemetry_error ?? "Offline"
+                            }
+                            wrap
+                          />
                         </div>
                       </div>
                     </div>
@@ -235,7 +215,7 @@ export function HardwareStatusDashboard({
                     </div>
                     <div className="divide-y divide-white/10 bg-black/20">
                       {arm.joints.map((joint) => {
-                        const runtime = liveServoState.get(joint.servo_id);
+                        const runtime = servoRuntimeMap(arm.telemetry).get(joint.servo_id);
                         return (
                           <div
                             key={`${arm.arm_id}-${joint.joint_name}`}
@@ -269,6 +249,71 @@ export function HardwareStatusDashboard({
         </div>
       </div>
     </section>
+  );
+}
+
+function TelemetryGroup({ arm }: { arm: ArmAdapterState }) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-3">
+            <Badge>{titleize(arm.arm_type)}</Badge>
+            <Badge variant="muted">{arm.arm_id}</Badge>
+          </div>
+          <p className="mt-2 text-sm text-slate-400">
+            {arm.telemetry_updated_at
+              ? `Last telemetry ${new Date(arm.telemetry_updated_at).toLocaleTimeString()}`
+              : "Telemetry stream active"}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        {arm.telemetry.map((servo) => (
+          <div
+            key={`${arm.arm_id}-${servo.id}`}
+            className="rounded-[22px] border border-white/10 bg-black/25 p-4 shadow-[0_12px_34px_rgba(2,8,23,0.24)]"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3">
+                  <Badge variant="muted">Servo {servo.id}</Badge>
+                  <p className="text-base font-semibold text-white">{titleize(servo.name)}</p>
+                </div>
+                <p className="mt-2 text-xs uppercase tracking-[0.24em] text-slate-500">{servo.motion_phase}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <MetricPill label="Angle" value={`${servo.angle.toFixed(1)}°`} icon={Gauge} />
+                <MetricPill label="Target" value={`${servo.target_angle.toFixed(1)}°`} icon={Target} />
+                <MetricPill label="Temp" value={`${servo.temperature_c.toFixed(1)}°C`} icon={Thermometer} />
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px] sm:items-center">
+              <div>
+                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.24em] text-slate-500">
+                  <span>Load</span>
+                  <span>{servo.load_pct.toFixed(1)}%</span>
+                </div>
+                <Progress value={servo.load_pct} className="h-2.5 bg-white/5" />
+              </div>
+              <div className="flex justify-start sm:justify-end">
+                <Badge
+                  className={
+                    servo.torque_enabled
+                      ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+                      : "border-slate-300/15 bg-slate-400/10 text-slate-200"
+                  }
+                >
+                  {servo.torque_enabled ? "Torque On" : "Torque Off"}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

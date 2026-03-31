@@ -22,15 +22,15 @@ The delivery sequence is:
 - `#17` Prepare dual-arm LeRobot adapter and safety envelope [done]
 - `#19` Add GitHub Actions CI for backend, frontend, and smoke validation
 - `#20` Dockerize frontend and backend with docker compose startup
-- `#29` Verify live SO-101 connection and calibration loading for both arms
+- `#29` Verify live SO-101 connection and calibration loading for both arms [done]
 - `#31` Implement real dual-arm SO-101 hardware bridge and telemetry
 - `#30` Enforce live safety supervisor for torque, neutral, emergency stop, and step limits
-- `#32` Add manual hardware validation controls and status surfaces
+- `#32` Add manual hardware validation controls and status surfaces [done]
 - `#34` Execute choreography on one live SO-101 arm
 - `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#32`
+- Current PR target: `#31`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -39,15 +39,19 @@ The delivery sequence is:
   - Dual-arm choreography output is section-aware and exposes left/right arm cue channels
   - `/api/state` now derives transport BPM, energy, spectrum bars, and autonomous servo modulation from cached analysis when it exists
   - Dual-arm adapter profiles now exist for leader + follower with dry-run defaults, safety envelopes, execution modes, and emergency-stop/neutral planning endpoints
-  - `#29` is wiring live readiness checks for dependency availability, serial-port reachability, and calibration coverage per arm
+  - `#29` now verifies dependency availability, serial-port reachability, and calibration coverage per arm
+  - `#31` now opens real read-only LeRobot/Feetech sessions for leader + follower and exposes live joint telemetry in `/api/state` and `/api/arms`
+  - Active bus sessions are now distinct from verification-ready state; `connected=true` means a live telemetry session is open
+  - The backend now requires `feetech-servo-sdk` for real SO-101 telemetry through LeRobot
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
   - Minimal local upload/select flow exists without redesigning the page
   - Waveform is now the primary playback surface through `wavesurfer.js`
   - Spectrogram, rhythm, structure, and track-info tabs are wired to the real backend analysis payload
-  - Hardware dashboard work is in progress for arm readiness, joint visibility, and operator validation status
-  - Live hardware execution is not implemented yet; the current dual-arm adapter remains dry-run only
+  - Hardware dashboard now separates verification-ready state from active telemetry state
+  - Robot dashboard now shows real per-arm telemetry once a live connection is opened
+  - Live hardware execution is not implemented yet; the current dual-arm adapter remains read-only/dry-run for writes
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.

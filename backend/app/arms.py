@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Protocol
 
 try:
     import serial
@@ -34,6 +35,7 @@ from .models import (
     MotionCue,
     RobotConfig,
     SceneName,
+    ServoState,
 )
 
 DEFAULT_JOINT_LAYOUT = [
@@ -50,6 +52,14 @@ DEFAULT_EXPECTED_JOINT_COUNT = len(DEFAULT_JOINT_LAYOUT)
 
 
 @dataclass
+class ArmTelemetryRuntime:
+    live: bool = False
+    updated_at: str | None = None
+    error: str | None = None
+    servos: list[ServoState] = field(default_factory=list)
+
+
+@dataclass
 class ArmRuntime:
     arm_id: str
     arm_type: ArmType
@@ -60,6 +70,7 @@ class ArmRuntime:
     notes: str
     safety: ArmSafetyEnvelope
     verification: ArmVerificationState
+    telemetry: ArmTelemetryRuntime = field(default_factory=ArmTelemetryRuntime)
     joints: list[ArmJointConfig] = field(default_factory=list)
 
 
@@ -194,6 +205,8 @@ class LeRobotArmVerifier:
             root / f"{arm_id}.json",
             root / "robots" / f"{arm_id}.json",
             root / "teleoperators" / f"{arm_id}.json",
+            root / "so_follower" / f"{arm_id}.json",
+            root / "so_leader" / f"{arm_id}.json",
             root / "so101_follower" / f"{arm_id}.json",
             root / "so101_leader" / f"{arm_id}.json",
         ]
@@ -237,13 +250,119 @@ class LeRobotArmVerifier:
                 self._collect_joint_counts(item, counts)
 
 
+class ArmHardwareBridge(Protocol):
+    def connect(self, arm: ArmRuntime) -> None: ...
+
+    def disconnect(self, arm: ArmRuntime) -> None: ...
+
+    def is_connected(self, arm: ArmRuntime) -> bool: ...
+
+    def read_telemetry(self, arm: ArmRuntime) -> list[ServoState]: ...
+
+
+@dataclass
+class LeRobotBusSession:
+    owner: Any
+    bus: Any
+
+
+class LeRobotHardwareBridge:
+    def __init__(self) -> None:
+        self.sessions: dict[str, LeRobotBusSession] = {}
+
+    def connect(self, arm: ArmRuntime) -> None:
+        if arm.arm_id in self.sessions:
+            return
+        session = self._build_session(arm)
+        self.sessions[arm.arm_id] = session
+
+    def disconnect(self, arm: ArmRuntime) -> None:
+        session = self.sessions.pop(arm.arm_id, None)
+        if session is None:
+            return
+        if session.bus.is_connected:
+            session.bus.disconnect(disable_torque=False)
+
+    def is_connected(self, arm: ArmRuntime) -> bool:
+        session = self.sessions.get(arm.arm_id)
+        return bool(session and session.bus.is_connected)
+
+    def read_telemetry(self, arm: ArmRuntime) -> list[ServoState]:
+        session = self.sessions.get(arm.arm_id)
+        if session is None:
+            raise RuntimeError(f"Arm '{arm.arm_id}' is not connected for telemetry")
+
+        bus = session.bus
+        positions = bus.sync_read("Present_Position")
+        goals = bus.sync_read("Goal_Position")
+        loads = bus.sync_read("Present_Load")
+        temperatures = bus.sync_read("Present_Temperature")
+        moving = bus.sync_read("Moving")
+        torque = bus.sync_read("Torque_Enable")
+
+        return [
+            ServoState(
+                id=servo_id,
+                name=joint_name,
+                angle=round(float(positions.get(joint_name, 0.0)), 2),
+                target_angle=round(float(goals.get(joint_name, positions.get(joint_name, 0.0))), 2),
+                torque_enabled=bool(torque.get(joint_name, 0)),
+                temperature_c=round(float(temperatures.get(joint_name, 0.0)), 1),
+                load_pct=round(self._normalize_load(loads.get(joint_name, 0.0)), 1),
+                motion_phase="ramping" if bool(moving.get(joint_name, 0)) else "steady",
+            )
+            for servo_id, joint_name in DEFAULT_JOINT_LAYOUT
+        ]
+
+    def _build_session(self, arm: ArmRuntime) -> LeRobotBusSession:
+        if not arm.port:
+            raise RuntimeError(f"Arm '{arm.arm_id}' has no configured serial port")
+
+        if arm.arm_type == ArmType.FOLLOWER:
+            from lerobot.robots.so_follower.config_so_follower import SOFollowerRobotConfig
+            from lerobot.robots.so_follower.so_follower import SOFollower
+
+            robot = SOFollower(
+                SOFollowerRobotConfig(
+                    id=arm.arm_id,
+                    port=arm.port,
+                    cameras={},
+                    use_degrees=True,
+                )
+            )
+            robot.bus.connect(handshake=True)
+            return LeRobotBusSession(owner=robot, bus=robot.bus)
+
+        from lerobot.teleoperators.so_leader.config_so_leader import SOLeaderTeleopConfig
+        from lerobot.teleoperators.so_leader.so_leader import SOLeader
+
+        teleoperator = SOLeader(
+            SOLeaderTeleopConfig(
+                id=arm.arm_id,
+                port=arm.port,
+                use_degrees=True,
+            )
+        )
+        teleoperator.bus.connect(handshake=True)
+        return LeRobotBusSession(owner=teleoperator, bus=teleoperator.bus)
+
+    def _normalize_load(self, value: float) -> float:
+        return max(0.0, min(100.0, abs(float(value)) / 10.0))
+
+
 class DualArmAdapter:
-    def __init__(self, config: RobotConfig, verifier: LeRobotArmVerifier | None = None) -> None:
+    def __init__(
+        self,
+        config: RobotConfig,
+        verifier: LeRobotArmVerifier | None = None,
+        bridge: ArmHardwareBridge | None = None,
+    ) -> None:
         self.execution_mode = ExecutionMode.MIRROR
         self.neutral_pose_scene = SceneName.IDLE
         self.required_dry_run = True
         self.arms: dict[str, ArmRuntime] = {}
         self.verifier = verifier or LeRobotArmVerifier()
+        self.bridge = bridge or LeRobotHardwareBridge()
 
         self._register_arm(
             arm_id=config.leader_id or "leader_arm",
@@ -259,7 +378,6 @@ class DualArmAdapter:
         )
 
     def _register_arm(self, arm_id: str, arm_type: ArmType, channel: ArmChannel, port: str | None) -> None:
-        available = bool(port)
         self.arms[arm_id] = ArmRuntime(
             arm_id=arm_id,
             arm_type=arm_type,
@@ -276,8 +394,8 @@ class DualArmAdapter:
 
     def _default_note(self, arm_type: ArmType) -> str:
         if arm_type == ArmType.LEADER:
-            return "Leader profile starts in conservative dry-run mode and requires live verification before motor writes."
-        return "Follower profile is staged for choreography playback and requires live verification before motor writes."
+            return "Leader profile is read-only until live motion support is added."
+        return "Follower profile is read-only until live motion support is added."
 
     def _default_safety(self, arm_type: ArmType) -> ArmSafetyEnvelope:
         if arm_type == ArmType.LEADER:
@@ -304,7 +422,7 @@ class DualArmAdapter:
         return joints
 
     def any_connected(self) -> bool:
-        return any(arm.connected for arm in self.arms.values())
+        return any(self.bridge.is_connected(arm) for arm in self.arms.values())
 
     def emergency_stop_active(self) -> bool:
         return any(arm.safety.emergency_stop for arm in self.arms.values())
@@ -316,12 +434,32 @@ class DualArmAdapter:
         arm = self._arm(arm_id)
         if connected and not arm.port:
             raise ValueError(f"Arm '{arm_id}' has no configured port")
+
         if connected:
             verification = self.verify_arm(arm_id)
-            arm.connected = verification.status == ArmVerificationStatus.READY
-        else:
-            arm.connected = False
-            arm.safety.torque_enabled = False
+            if verification.status != ArmVerificationStatus.READY:
+                raise ValueError(verification.message or f"Arm '{arm_id}' is not ready for live telemetry")
+
+            try:
+                self.bridge.connect(arm)
+                arm.connected = self.bridge.is_connected(arm)
+                self.refresh_telemetry(arm_id)
+                arm.notes = f"{arm.arm_id} is streaming live telemetry."
+            except Exception as exc:
+                arm.connected = False
+                arm.telemetry.live = False
+                arm.telemetry.error = str(exc)
+                arm.notes = f"Live telemetry connection failed: {exc}"
+                raise ValueError(arm.notes) from exc
+            return
+
+        self.bridge.disconnect(arm)
+        arm.connected = False
+        arm.telemetry.live = False
+        arm.telemetry.error = None
+        arm.telemetry.updated_at = None
+        arm.telemetry.servos = []
+        arm.notes = self._default_note(arm.arm_type)
 
     def update_safety(self, arm_id: str, payload: ArmSafetyUpdate) -> None:
         arm = self._arm(arm_id)
@@ -364,15 +502,52 @@ class DualArmAdapter:
         arm.calibrated = verification.calibration_found and (
             verification.detected_joint_count >= verification.expected_joint_count
         )
-        arm.connected = verification.status == ArmVerificationStatus.READY
+        if not self.bridge.is_connected(arm):
+            arm.connected = False
         if verification.message:
             arm.notes = verification.message
         return verification
+
+    def refresh_all_telemetry(self) -> None:
+        for arm_id in self.arms:
+            if self.arms[arm_id].connected:
+                self.refresh_telemetry(arm_id)
+
+    def refresh_telemetry(self, arm_id: str) -> list[ServoState]:
+        arm = self._arm(arm_id)
+        if not self.bridge.is_connected(arm):
+            arm.connected = False
+            arm.telemetry.live = False
+            arm.telemetry.error = "Arm is not connected for live telemetry."
+            arm.telemetry.servos = []
+            return []
+
+        try:
+            servos = self.bridge.read_telemetry(arm)
+        except Exception as exc:
+            self.bridge.disconnect(arm)
+            arm.connected = False
+            arm.telemetry.live = False
+            arm.telemetry.error = str(exc)
+            arm.telemetry.updated_at = datetime.now(UTC).isoformat()
+            arm.telemetry.servos = []
+            arm.notes = f"Telemetry read failed: {exc}"
+            return []
+
+        arm.connected = True
+        arm.telemetry.live = True
+        arm.telemetry.error = None
+        arm.telemetry.updated_at = datetime.now(UTC).isoformat()
+        arm.telemetry.servos = servos
+        return servos
 
     def snapshot(self, choreography: ChoreographyTimeline | None, position_seconds: float) -> DualArmState:
         choreography_ready = choreography is not None
         arms: list[ArmAdapterState] = []
         for arm in self.arms.values():
+            if arm.connected:
+                self.refresh_telemetry(arm.arm_id)
+
             channel_cues = self._channel_cues(choreography, arm.channel)
             arms.append(
                 ArmAdapterState(
@@ -386,6 +561,10 @@ class DualArmAdapter:
                     safety=arm.safety.model_copy(deep=True),
                     joints=[joint.model_copy(deep=True) for joint in arm.joints],
                     verification=arm.verification.model_copy(deep=True),
+                    telemetry_live=arm.telemetry.live,
+                    telemetry_updated_at=arm.telemetry.updated_at,
+                    telemetry_error=arm.telemetry.error,
+                    telemetry=[servo.model_copy(deep=True) for servo in arm.telemetry.servos],
                     preview=self._preview(channel_cues, arm.channel, position_seconds),
                     notes=arm.notes,
                 )

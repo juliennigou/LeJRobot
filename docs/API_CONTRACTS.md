@@ -113,7 +113,8 @@ These contracts started ahead of the implementation. The real backend analysis p
 }
 ```
 - Response: `DualArmState`
-- Connecting an arm now refreshes its verification state before marking it connected
+- Connecting an arm now refreshes verification and opens a live read-only telemetry session through LeRobot/Feetech
+- `connected=true` now means an active bus session is open, not just that verification passed
 
 ### `POST /api/arms/{arm_id}/safety`
 - Body:
@@ -216,6 +217,11 @@ These contracts started ahead of the implementation. The real backend analysis p
 - `calibrated`
 - `safety`
 - `joints`
+- `verification`
+- `telemetry_live`
+- `telemetry_updated_at`
+- `telemetry_error`
+- `telemetry`
 - `preview`
 - `notes`
 
@@ -227,3 +233,4 @@ These contracts started ahead of the implementation. The real backend analysis p
 - Analysis results are cached on disk under `.data/analysis-cache/` keyed by `source + track_id`.
 - `AudioAnalysis.choreography` exposes the timeline consumed by the dual-arm adapter preview.
 - `GET /api/state` now returns a `dual_arm` block in addition to the legacy single-arm servo view so the frontend can evolve without breaking existing responses.
+- When a follower live session is open, the legacy `servos` list now reflects real follower telemetry instead of the synthetic fallback values.
