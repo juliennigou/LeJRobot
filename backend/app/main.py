@@ -133,6 +133,14 @@ def update_arm_safety(arm_id: str, payload: ArmSafetyUpdate) -> DualArmState:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/api/arms/{arm_id}/reset-state", response_model=DualArmState)
+def reset_arm_state(arm_id: str) -> DualArmState:
+    try:
+        return store.reset_arm_state(arm_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.post("/api/arms/emergency-stop", response_model=DualArmState)
 def emergency_stop() -> DualArmState:
     return store.emergency_stop()

@@ -67,6 +67,7 @@ export function HardwareStatusDashboard({
   onToggleDryRun,
   onToggleTorque,
   onResetArmEmergencyStop,
+  onResetArmState,
   onNeutralAll,
   onEmergencyStop,
   onEmergencyReset,
@@ -81,6 +82,7 @@ export function HardwareStatusDashboard({
   onToggleDryRun: (armId: string, dryRun: boolean) => void;
   onToggleTorque: (armId: string, enabled: boolean) => void;
   onResetArmEmergencyStop: (armId: string) => void;
+  onResetArmState: (armId: string) => void;
   onNeutralAll: () => void;
   onEmergencyStop: () => void;
   onEmergencyReset: () => void;
@@ -241,7 +243,7 @@ export function HardwareStatusDashboard({
                     <StatusBlock label="Step Limit" value={`${arm.safety.max_step_degrees.toFixed(1)}°`} />
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-4">
                     <Button
                       variant={arm.safety.dry_run ? "secondary" : "ghost"}
                       disabled={busyAction !== null}
@@ -270,6 +272,13 @@ export function HardwareStatusDashboard({
                       onClick={() => onResetArmEmergencyStop(arm.arm_id)}
                     >
                       {busyAction === `${arm.arm_id}:reset-estop` ? "Resetting..." : "Clear Arm E-Stop"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busyAction !== null}
+                      onClick={() => onResetArmState(arm.arm_id)}
+                    >
+                      {busyAction === `${arm.arm_id}:reset-state` ? "Resetting..." : "Reset Arm"}
                     </Button>
                   </div>
 

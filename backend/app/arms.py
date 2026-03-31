@@ -644,6 +644,42 @@ class DualArmAdapter:
         for arm_id in self.arms:
             self.verify_arm(arm_id)
 
+    def reset_arm_state(self, arm_id: str) -> None:
+        arm = self._arm(arm_id)
+        was_connected = self.bridge.is_connected(arm)
+
+        if self._movement_state.status == MovementStatus.RUNNING and self._movement_state.arm_id == arm_id:
+            self.stop_movement()
+
+        if was_connected:
+            with self._command_lock:
+                self.bridge.disconnect(arm)
+
+        arm.safety = self._default_safety(arm.arm_type)
+        arm.joints = self._default_joints(arm.arm_type)
+        arm.connected = False
+        arm.telemetry.live = False
+        arm.telemetry.error = None
+        arm.telemetry.updated_at = None
+        arm.telemetry.servos = []
+        arm.last_command_at = None
+        arm.last_command_error = None
+        arm.notes = self._default_note(arm.arm_type)
+
+        verification = self.verify_arm(arm_id)
+        if verification.status != ArmVerificationStatus.READY:
+            arm.notes = verification.message or f"{arm_id} reset, but verification is not ready."
+            return
+
+        if was_connected:
+            with self._command_lock:
+                self.bridge.connect(arm)
+                arm.connected = self.bridge.is_connected(arm)
+                self.refresh_telemetry(arm_id)
+                self.bridge.set_torque_enabled(arm, True)
+                self.refresh_telemetry(arm_id)
+            arm.notes = f"{arm.arm_id} reset to default live state."
+
     def verify_arm(self, arm_id: str) -> ArmVerificationState:
         arm = self._arm(arm_id)
         verification = self.verifier.verify(arm)
