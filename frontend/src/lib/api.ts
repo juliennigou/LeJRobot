@@ -135,6 +135,18 @@ export function stopMovement() {
   });
 }
 
+export function startAutonomy() {
+  return request<RobotState>("/api/autonomy/start", {
+    method: "POST",
+  });
+}
+
+export function stopAutonomy() {
+  return request<RobotState>("/api/autonomy/stop", {
+    method: "POST",
+  });
+}
+
 export function setMode(mode: DanceMode) {
   return request<RobotState>("/api/mode", {
     method: "POST",

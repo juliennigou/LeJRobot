@@ -175,6 +175,19 @@ def stop_movement() -> MovementLibraryState:
     return store.stop_movement()
 
 
+@app.post("/api/autonomy/start", response_model=RobotState)
+def start_autonomy() -> RobotState:
+    try:
+        return store.start_autonomy()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/autonomy/stop", response_model=RobotState)
+def stop_autonomy() -> RobotState:
+    return store.stop_autonomy()
+
+
 @app.get("/api/tracks/search", response_model=TrackSearchResponse)
 def search_tracks(
     q: str,

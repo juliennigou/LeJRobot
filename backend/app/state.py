@@ -9,6 +9,8 @@ from time import monotonic
 
 from .arms import ArmHardwareBridge, DEFAULT_JOINT_LAYOUT, DualArmAdapter, LeRobotArmVerifier
 from .models import (
+    AutonomousPerformanceState,
+    AutonomyStatus,
     AnalysisStartResponse,
     AnalysisStatus,
     AnalysisStatusResponse,
@@ -105,6 +107,7 @@ class RobotStateStore:
         self.arm_adapter = DualArmAdapter(self.config, verifier=verifier, bridge=bridge)
         self.mode = DanceMode.IDLE
         self.transport = TransportState()
+        self.autonomy = AutonomousPerformanceState(note="Autonomous scheduler idle.")
         self.status = "ready"
         self.latency_ms = 14
         self.sync_quality = 92
@@ -145,7 +148,10 @@ class RobotStateStore:
 
         analysis = self.current_analysis()
         choreography = self.current_choreography()
+        schedule = self.current_schedule()
         self._sync_transport_from_analysis(analysis)
+        if self.mode == DanceMode.AUTONOMOUS:
+            self._tick_autonomous_schedule(schedule, analysis.duration_seconds if analysis is not None else None)
 
         beat = self.transport.position_seconds * max(self.transport.bpm, 1) / 60.0
         beat_phase = beat * math.tau
@@ -251,6 +257,7 @@ class RobotStateStore:
             dual_arm=dual_arm,
             movement_library=self.arm_adapter.movement_library_snapshot(),
             schedule=self.current_schedule(),
+            autonomy=self.autonomy.model_copy(deep=True),
         )
 
     def _build_spectrum(self) -> list[int]:
@@ -281,6 +288,8 @@ class RobotStateStore:
     def set_mode(self, mode: DanceMode) -> RobotState:
         if self.arm_adapter.emergency_stop_active() and mode != DanceMode.IDLE:
             mode = DanceMode.IDLE
+        if mode != DanceMode.AUTONOMOUS and self.mode == DanceMode.AUTONOMOUS:
+            self._clear_autonomy_state("Autonomous scheduler idle.")
         self.mode = mode
         if mode == DanceMode.IDLE:
             self.apply_scene(SceneName.IDLE)
@@ -326,6 +335,7 @@ class RobotStateStore:
         return self.snapshot()
 
     def select_track(self, payload: TrackSelection) -> RobotState:
+        self._clear_autonomy_state("Track changed. Autonomous scheduler reset.")
         track = payload.track
         self.remember_track(track)
         key = self._track_key(track.source, track.track_id)
@@ -428,6 +438,7 @@ class RobotStateStore:
         self.arm_adapter.emergency_stop()
         self.transport.playing = False
         self.mode = DanceMode.IDLE
+        self._clear_autonomy_state("Emergency stop engaged.")
         self._set_scene_targets(SceneName.IDLE)
         self._sync_follower_torque_state()
         return self.arms_snapshot()
@@ -441,6 +452,7 @@ class RobotStateStore:
         self.arm_adapter.neutralize()
         self.transport.playing = False
         self.mode = DanceMode.IDLE
+        self._clear_autonomy_state("Moved to neutral pose.")
         self._set_scene_targets(SceneName.IDLE)
         return self.arms_snapshot()
 
@@ -449,6 +461,7 @@ class RobotStateStore:
         return self.arm_adapter.movement_library_snapshot()
 
     def run_movement(self, payload: MovementRunRequest) -> MovementLibraryState:
+        self._clear_autonomy_state("Manual movement requested.")
         self.arm_adapter.start_movement(payload)
         self.mode = DanceMode.MANUAL
         self.transport.playing = False
@@ -456,8 +469,34 @@ class RobotStateStore:
 
     def stop_movement(self) -> MovementLibraryState:
         self.arm_adapter.stop_movement()
-        self.mode = DanceMode.IDLE
+        if self.mode != DanceMode.AUTONOMOUS:
+            self.mode = DanceMode.IDLE
         return self.movement_library()
+
+    def start_autonomy(self) -> RobotState:
+        if self.transport.current_track is None:
+            raise ValueError("Select a track before starting autonomous playback.")
+        schedule = self.current_schedule()
+        if schedule is None or schedule.phrase_count == 0:
+            raise ValueError("No schedule is available for the selected track.")
+
+        self.transport.position_seconds = 0.0
+        self.transport.playing = True
+        self.mode = DanceMode.AUTONOMOUS
+        self.autonomy = AutonomousPerformanceState(
+            status=AutonomyStatus.ARMED,
+            note="Autonomous scheduler armed. Waiting for the first scheduled phrase.",
+            next_phrase_id=schedule.phrases[0].phrase_id if schedule.phrases else None,
+            last_transition_at=datetime.now(UTC).isoformat(),
+        )
+        return self.snapshot()
+
+    def stop_autonomy(self) -> RobotState:
+        self.arm_adapter.stop_movement()
+        self.transport.playing = False
+        self.mode = DanceMode.IDLE
+        self._clear_autonomy_state("Autonomous playback stopped.")
+        return self.snapshot()
 
     def queue_analysis(self, payload: TrackReference) -> AnalysisStartResponse:
         self.analysis_results.pop(self._track_key(payload.source, payload.track_id), None)
@@ -576,6 +615,74 @@ class RobotStateStore:
         self.transport.bpm = max(40, min(220, int(round(analysis.bpm or self.transport.bpm))))
         frame_index = self._analysis_frame_index(analysis)
         self.transport.energy = round(self._series_value(analysis.energy.rms, frame_index), 3)
+
+    def _tick_autonomous_schedule(self, schedule: ChoreographySchedule | None, duration_seconds: float | None) -> None:
+        if schedule is None or not schedule.phrases:
+            self.autonomy.status = AutonomyStatus.ERROR
+            self.autonomy.note = "No scheduled phrases are available for autonomous playback."
+            self.transport.playing = False
+            self.mode = DanceMode.IDLE
+            return
+
+        position = self.transport.position_seconds
+        current_phrase = next((phrase for phrase in schedule.phrases if phrase.start_seconds <= position < phrase.end_seconds), None)
+        next_phrase = next((phrase for phrase in schedule.phrases if phrase.start_seconds > position), None)
+
+        if current_phrase is None:
+            if next_phrase is not None:
+                self.autonomy.status = AutonomyStatus.ARMED
+                self.autonomy.active_phrase_id = None
+                self.autonomy.current_phrase = None
+                self.autonomy.next_phrase_id = next_phrase.phrase_id
+                self.autonomy.note = f"Waiting for {next_phrase.movement_id} at {next_phrase.start_seconds:.2f}s."
+            else:
+                if self.arm_adapter.movement_library_snapshot().active.status.value == "running":
+                    self.arm_adapter.stop_movement()
+                self.transport.playing = False
+                self.mode = DanceMode.IDLE
+                self._clear_autonomy_state("Autonomous playback completed.")
+            return
+
+        self.autonomy.next_phrase_id = next_phrase.phrase_id if next_phrase is not None else None
+        if self.autonomy.active_phrase_id != current_phrase.phrase_id:
+            if self.arm_adapter.movement_library_snapshot().active.status.value == "running":
+                self.arm_adapter.stop_movement()
+            try:
+                self.arm_adapter.start_movement(
+                    MovementRunRequest(
+                        movement_id=current_phrase.movement_id,
+                        target_scope=current_phrase.target_scope,
+                        execution_mode=current_phrase.execution_mode,
+                        preset_id=current_phrase.preset_id,
+                    )
+                )
+            except ValueError as exc:
+                self.autonomy.status = AutonomyStatus.ERROR
+                self.autonomy.note = str(exc)
+                self.transport.playing = False
+                self.mode = DanceMode.IDLE
+                return
+            self.autonomy.active_phrase_id = current_phrase.phrase_id
+            self.autonomy.current_phrase = current_phrase
+            self.autonomy.status = AutonomyStatus.RUNNING
+            self.autonomy.note = f"{current_phrase.movement_id} ({current_phrase.execution_mode.value}) is running."
+            self.autonomy.last_transition_at = datetime.now(UTC).isoformat()
+        else:
+            self.autonomy.status = AutonomyStatus.RUNNING
+            self.autonomy.current_phrase = current_phrase
+            self.autonomy.note = f"{current_phrase.movement_id} ({current_phrase.execution_mode.value}) is running."
+
+        if duration_seconds is not None and position >= duration_seconds:
+            self.transport.playing = False
+            self.mode = DanceMode.IDLE
+            self._clear_autonomy_state("Autonomous playback completed.")
+
+    def _clear_autonomy_state(self, note: str) -> None:
+        self.autonomy = AutonomousPerformanceState(
+            status=AutonomyStatus.IDLE,
+            note=note,
+            last_transition_at=datetime.now(UTC).isoformat(),
+        )
 
     def _analysis_frame_index(self, analysis: AudioAnalysis) -> int:
         if analysis.energy.frame_hz <= 0 or not analysis.energy.rms:

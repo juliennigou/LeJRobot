@@ -15,8 +15,10 @@ import {
   setArmConnection,
   selectTrack,
   setTransport,
+  startAutonomy,
   startAnalysis,
   stopMovement,
+  stopAutonomy,
   triggerEmergencyStop,
   updateArmSafety,
   uploadTrack,
@@ -110,6 +112,7 @@ function App() {
   const [movementTargetScope, setMovementTargetScope] = useState<MovementTargetScope>("single");
   const [movementExecutionMode, setMovementExecutionMode] = useState<ExecutionMode>("mirror");
   const [movementBusyAction, setMovementBusyAction] = useState<string | null>(null);
+  const [autonomyBusy, setAutonomyBusy] = useState(false);
   const [movementTunings, setMovementTunings] = useState<Record<string, MovementTuning>>({});
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -530,6 +533,30 @@ function App() {
     }
   }, []);
 
+  const handleStartAutonomy = useCallback(async () => {
+    setAutonomyBusy(true);
+    try {
+      await commitAction(() => startAutonomy());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start autonomous playback");
+    } finally {
+      setAutonomyBusy(false);
+    }
+  }, []);
+
+  const handleStopAutonomy = useCallback(async () => {
+    setAutonomyBusy(true);
+    try {
+      await commitAction(() => stopAutonomy());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to stop autonomous playback");
+    } finally {
+      setAutonomyBusy(false);
+    }
+  }, []);
+
   const searchDropdownResults = useMemo(() => {
     const deduped = new Map<string, TrackSummary>();
     [...localTracks, ...searchResults].forEach((track) => {
@@ -709,9 +736,13 @@ function App() {
                     analysis={analysis}
                     choreography={cueSummary}
                     schedule={currentSchedule}
+                    autonomy={state?.autonomy ?? { status: "idle", note: "Autonomous scheduler idle." }}
                     analysisStatus={analysisStatus}
                     analysisLoading={analysisLoading}
                     analysisError={analysisError}
+                    autonomyBusy={autonomyBusy}
+                    onStartAutonomy={() => void handleStartAutonomy()}
+                    onStopAutonomy={() => void handleStopAutonomy()}
                   />
                 </TabsContent>
               </Tabs>

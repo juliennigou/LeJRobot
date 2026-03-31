@@ -1,4 +1,5 @@
 import type {
+  AutonomousPerformanceState,
   AnalysisStatusResponse,
   AudioAnalysis,
   ChoreographySchedule,
@@ -7,23 +8,32 @@ import type {
 } from "@/lib/types";
 
 import { formatDate, formatDuration } from "@/lib/analysis-view";
+import { Button } from "@/components/ui/button";
 
 export function TrackInfoPanel({
   track,
   analysis,
   choreography,
   schedule,
+  autonomy,
   analysisStatus,
   analysisLoading,
   analysisError,
+  autonomyBusy,
+  onStartAutonomy,
+  onStopAutonomy,
 }: {
   track: TrackSummary | null;
   analysis: AudioAnalysis | null;
   choreography: ChoreographyTimeline | null;
   schedule: ChoreographySchedule | null;
+  autonomy: AutonomousPerformanceState;
   analysisStatus: AnalysisStatusResponse | null;
   analysisLoading: boolean;
   analysisError: string | null;
+  autonomyBusy: boolean;
+  onStartAutonomy: () => void;
+  onStopAutonomy: () => void;
 }) {
   return (
     <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
@@ -70,6 +80,18 @@ export function TrackInfoPanel({
                 : "The phrase scheduler appears after analysis is available for the selected track."
             }
           />
+          <Banner
+            title={`Autonomy ${autonomy.status}`}
+            note={autonomy.note ?? "Autonomous playback is idle."}
+          />
+          <div className="flex flex-wrap gap-3">
+            <Button disabled={!schedule || autonomyBusy} onClick={onStartAutonomy}>
+              {autonomyBusy ? "Starting..." : "Start Autonomous"}
+            </Button>
+            <Button variant="ghost" disabled={autonomyBusy || autonomy.status === "idle"} onClick={onStopAutonomy}>
+              Stop Autonomous
+            </Button>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <InfoTile label="Sample Rate" value={analysis ? `${analysis.sample_rate} Hz` : "--"} />
             <InfoTile label="Waveform Buckets" value={analysis ? `${analysis.waveform.bucket_count}` : "--"} />

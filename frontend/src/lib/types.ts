@@ -11,6 +11,7 @@ export type ArmChannel = "left" | "right";
 export type ExecutionMode = "mirror" | "unison" | "call_response" | "asymmetric";
 export type MovementStatus = "idle" | "running" | "completed" | "stopped" | "error";
 export type MovementTargetScope = "single" | "both";
+export type AutonomyStatus = "idle" | "armed" | "running" | "error";
 export type ArmVerificationStatus =
   | "idle"
   | "ready"
@@ -132,6 +133,15 @@ export interface ChoreographySchedule {
   generated_at: string;
   phrase_count: number;
   phrases: ScheduledMovementPhrase[];
+}
+
+export interface AutonomousPerformanceState {
+  status: AutonomyStatus;
+  active_phrase_id?: string | null;
+  current_phrase?: ScheduledMovementPhrase | null;
+  next_phrase_id?: string | null;
+  note?: string | null;
+  last_transition_at?: string | null;
 }
 
 export interface AudioAnalysis {
@@ -353,4 +363,5 @@ export interface RobotState {
   dual_arm: DualArmState;
   movement_library: MovementLibraryState;
   schedule?: ChoreographySchedule | null;
+  autonomy: AutonomousPerformanceState;
 }
