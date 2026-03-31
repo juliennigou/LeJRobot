@@ -215,6 +215,10 @@ export interface ArmAdapterState {
   safety: ArmSafetyEnvelope;
   joints: ArmJointConfig[];
   verification: ArmVerificationState;
+  telemetry_live: boolean;
+  telemetry_updated_at?: string | null;
+  telemetry_error?: string | null;
+  telemetry: ServoState[];
   preview: ArmPreviewState;
   notes?: string | null;
 }

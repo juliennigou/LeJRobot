@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 
-from .arms import DEFAULT_JOINT_LAYOUT, DualArmAdapter, LeRobotArmVerifier
+from .arms import ArmHardwareBridge, DEFAULT_JOINT_LAYOUT, DualArmAdapter, LeRobotArmVerifier
 from .models import (
     AnalysisStartResponse,
     AnalysisStatus,
@@ -90,9 +90,14 @@ class ServoRuntime:
 
 
 class RobotStateStore:
-    def __init__(self, config: RobotConfig | None = None, verifier: LeRobotArmVerifier | None = None) -> None:
+    def __init__(
+        self,
+        config: RobotConfig | None = None,
+        verifier: LeRobotArmVerifier | None = None,
+        bridge: ArmHardwareBridge | None = None,
+    ) -> None:
         self.config = config or self._load_config()
-        self.arm_adapter = DualArmAdapter(self.config, verifier=verifier)
+        self.arm_adapter = DualArmAdapter(self.config, verifier=verifier, bridge=bridge)
         self.mode = DanceMode.IDLE
         self.transport = TransportState()
         self.status = "ready"
@@ -220,6 +225,7 @@ class RobotStateStore:
         connected = self.arm_adapter.any_connected()
         spectrum = self._build_spectrum()
         dual_arm = self.arm_adapter.snapshot(self.current_choreography(), self.transport.position_seconds)
+        public_servos = self._public_servos(dual_arm)
         return RobotState(
             connected=connected,
             status=self.status,
@@ -234,19 +240,7 @@ class RobotStateStore:
             last_sync=datetime.now(UTC).isoformat(),
             transport=self.transport,
             spectrum=spectrum,
-            servos=[
-                ServoState(
-                    id=servo.id,
-                    name=servo.name,
-                    angle=round(servo.angle, 2),
-                    target_angle=round(servo.target_angle, 2),
-                    torque_enabled=servo.torque_enabled,
-                    temperature_c=round(servo.temperature_c, 1),
-                    load_pct=round(servo.load_pct, 1),
-                    motion_phase=servo.motion_phase,
-                )
-                for servo in self.servos
-            ],
+            servos=public_servos,
             dual_arm=dual_arm,
         )
 
@@ -564,6 +558,25 @@ class RobotStateStore:
         torque_enabled = follower.safety.torque_enabled and not follower.safety.emergency_stop
         for servo in self.servos:
             servo.torque_enabled = torque_enabled
+
+    def _public_servos(self, dual_arm: DualArmState) -> list[ServoState]:
+        follower = next((arm for arm in dual_arm.arms if arm.arm_type == "follower"), None)
+        if follower and follower.telemetry_live and follower.telemetry:
+            return [servo.model_copy(deep=True) for servo in follower.telemetry]
+
+        return [
+            ServoState(
+                id=servo.id,
+                name=servo.name,
+                angle=round(servo.angle, 2),
+                target_angle=round(servo.target_angle, 2),
+                torque_enabled=servo.torque_enabled,
+                temperature_c=round(servo.temperature_c, 1),
+                load_pct=round(servo.load_pct, 1),
+                motion_phase=servo.motion_phase,
+            )
+            for servo in self.servos
+        ]
 
     def _servo_driver(
         self,

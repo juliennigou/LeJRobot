@@ -194,6 +194,10 @@ class ArmAdapterState(BaseModel):
     safety: ArmSafetyEnvelope
     joints: list[ArmJointConfig]
     verification: ArmVerificationState
+    telemetry_live: bool = False
+    telemetry_updated_at: str | None = None
+    telemetry_error: str | None = None
+    telemetry: list[ServoState] = Field(default_factory=list)
     preview: ArmPreviewState
     notes: str | None = None
 

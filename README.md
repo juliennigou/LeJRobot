@@ -104,12 +104,13 @@ The backend now exposes a dry-run dual-arm execution surface for your SO-101 lea
 
 - `GET /api/arms` returns concrete adapter profiles for `leader` and `follower`
 - `POST /api/arms/verify` checks dependency availability, serial-port reachability, and calibration coverage for both arms
+- `POST /api/arms/{arm_id}/connect` now opens a real read-only telemetry session for the selected arm
 - `POST /api/arms/execution-mode` switches between `mirror`, `unison`, `call_response`, and `asymmetric`
 - `POST /api/arms/{arm_id}/safety` updates per-arm dry-run/safety settings plus joint overrides for offsets, inversion, limits, and speed caps
 - `POST /api/arms/emergency-stop` disables torque in the adapter layer before any real motor writes are attempted
 - `POST /api/arms/neutral` moves the planning state back to the neutral scene
 
-This is still a planning and validation layer. It does not write choreography to real hardware yet, but it now reports whether each arm is actually ready for the live execution phase.
+This is still a planning and validation layer for motion writes. It does not send choreography to real hardware yet, but it now opens real SO-101 read-only telemetry sessions and reports live joint values for each arm.
 
 Install or refresh backend dependencies after pulling:
 
@@ -118,6 +119,8 @@ cd backend
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+The backend requirements now include `feetech-servo-sdk`, which LeRobot needs for Feetech/STS telemetry.
 
 ## Docker
 

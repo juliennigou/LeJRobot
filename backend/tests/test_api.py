@@ -14,7 +14,7 @@ from backend.app import main as main_module
 from backend.app.analysis import AudioAnalysisCache, AudioAnalysisService
 from backend.app.arms import DEFAULT_EXPECTED_JOINT_COUNT, ArmRuntime
 from backend.app.music import JamendoTrackProvider, LocalTrackLibrary
-from backend.app.models import ArmVerificationState, ArmVerificationStatus, RobotConfig
+from backend.app.models import ArmVerificationState, ArmVerificationStatus, RobotConfig, ServoState
 from backend.app.state import RobotStateStore
 
 
@@ -32,6 +32,47 @@ class FakeReadyVerifier:
             last_checked_at="2026-03-31T00:00:00+00:00",
             message=f"{arm.arm_id} verified for tests",
         )
+
+
+DEFAULT_SERVO_LAYOUT = [
+    (1, "shoulder_pan"),
+    (2, "shoulder_lift"),
+    (3, "elbow_flex"),
+    (4, "wrist_flex"),
+    (5, "wrist_roll"),
+    (6, "gripper"),
+]
+
+
+class FakeTelemetryBridge:
+    def __init__(self) -> None:
+        self.connected: set[str] = set()
+
+    def connect(self, arm: ArmRuntime) -> None:
+        self.connected.add(arm.arm_id)
+
+    def disconnect(self, arm: ArmRuntime) -> None:
+        self.connected.discard(arm.arm_id)
+
+    def is_connected(self, arm: ArmRuntime) -> bool:
+        return arm.arm_id in self.connected
+
+    def read_telemetry(self, arm: ArmRuntime) -> list[ServoState]:
+        base = 10.0 if arm.arm_type == "leader" else 20.0
+        torque_enabled = arm.safety.torque_enabled and not arm.safety.emergency_stop
+        return [
+            ServoState(
+                id=servo_id,
+                name=name,
+                angle=base + servo_id,
+                target_angle=base + servo_id + 0.5,
+                torque_enabled=torque_enabled,
+                temperature_c=32.0 + servo_id,
+                load_pct=10.0 + servo_id,
+                motion_phase="ramping" if servo_id % 2 else "steady",
+            )
+            for servo_id, name in DEFAULT_SERVO_LAYOUT
+        ]
 
 
 class ApiSmokeTest(unittest.TestCase):
@@ -54,6 +95,7 @@ class ApiSmokeTest(unittest.TestCase):
                 safety_step_ticks=120,
             ),
             verifier=FakeReadyVerifier(),
+            bridge=FakeTelemetryBridge(),
         )
         main_module.local_library = LocalTrackLibrary(
             uploads_dir=uploads_root,
@@ -142,9 +184,27 @@ class ApiSmokeTest(unittest.TestCase):
         verify = self.client.post("/api/arms/verify")
         self.assertEqual(verify.status_code, 200)
         verify_payload = verify.json()
-        self.assertTrue(all(arm["connected"] for arm in verify_payload["arms"]))
+        self.assertTrue(all(not arm["connected"] for arm in verify_payload["arms"]))
         self.assertTrue(all(arm["calibrated"] for arm in verify_payload["arms"]))
         self.assertTrue(all(arm["verification"]["driver"] == "test-double" for arm in verify_payload["arms"]))
+
+        connect_leader = self.client.post("/api/arms/test_leader/connect", json={"connected": True})
+        self.assertEqual(connect_leader.status_code, 200)
+        leader_live = next(arm for arm in connect_leader.json()["arms"] if arm["arm_id"] == "test_leader")
+        self.assertTrue(leader_live["connected"])
+        self.assertTrue(leader_live["telemetry_live"])
+        self.assertEqual(len(leader_live["telemetry"]), 6)
+
+        connect_follower = self.client.post("/api/arms/test_follower/connect", json={"connected": True})
+        self.assertEqual(connect_follower.status_code, 200)
+        follower_live = next(arm for arm in connect_follower.json()["arms"] if arm["arm_id"] == "test_follower")
+        self.assertTrue(follower_live["connected"])
+        self.assertTrue(follower_live["telemetry_live"])
+        self.assertEqual(follower_live["telemetry"][0]["name"], "shoulder_pan")
+
+        state_with_live = self.client.get("/api/state")
+        self.assertEqual(state_with_live.status_code, 200)
+        self.assertEqual(state_with_live.json()["servos"][0]["angle"], 21.0)
 
         mode_update = self.client.post("/api/arms/execution-mode", json={"mode": "call_response"})
         self.assertEqual(mode_update.status_code, 200)
