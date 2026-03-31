@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic, sleep
-from threading import Event, Lock, Thread
+from threading import Event, RLock, Thread
 from typing import Any, Protocol
 
 try:
@@ -409,7 +409,7 @@ class DualArmAdapter:
         self.neutral_pose_scene = SceneName.IDLE
         self.required_dry_run = True
         self.last_command_at: str | None = None
-        self._command_lock = Lock()
+        self._command_lock = RLock()
         self._movement_stop = Event()
         self._movement_thread: Thread | None = None
         self._movement_definitions = {movement.movement_id: movement for movement in list_movements()}
@@ -495,11 +495,12 @@ class DualArmAdapter:
                 raise ValueError(verification.message or f"Arm '{arm_id}' is not ready for live telemetry")
 
             try:
-                self.bridge.connect(arm)
-                arm.connected = self.bridge.is_connected(arm)
-                self.refresh_telemetry(arm_id)
-                self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled and not arm.safety.emergency_stop)
-                self.refresh_telemetry(arm_id)
+                with self._command_lock:
+                    self.bridge.connect(arm)
+                    arm.connected = self.bridge.is_connected(arm)
+                    self.refresh_telemetry(arm_id)
+                    self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled and not arm.safety.emergency_stop)
+                    self.refresh_telemetry(arm_id)
                 arm.notes = f"{arm.arm_id} is streaming live telemetry."
             except Exception as exc:
                 arm.connected = False
@@ -511,7 +512,8 @@ class DualArmAdapter:
 
         if self._movement_state.status == MovementStatus.RUNNING and self._movement_state.arm_id == arm_id:
             self.stop_movement()
-        self.bridge.disconnect(arm)
+        with self._command_lock:
+            self.bridge.disconnect(arm)
         arm.connected = False
         arm.telemetry.live = False
         arm.telemetry.error = None
@@ -546,8 +548,9 @@ class DualArmAdapter:
             return
 
         if self.bridge.is_connected(arm) and (payload.torque_enabled is not None or payload.emergency_stop is not None):
-            self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled)
-            self.refresh_telemetry(arm_id)
+            with self._command_lock:
+                self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled)
+                self.refresh_telemetry(arm_id)
 
         arm.notes = (
             f"Safety updated. Torque {'enabled' if arm.safety.torque_enabled else 'disabled'}; "
@@ -568,8 +571,9 @@ class DualArmAdapter:
         for arm in self.arms.values():
             arm.safety.emergency_stop = False
             if self.bridge.is_connected(arm):
-                self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled)
-                self.refresh_telemetry(arm.arm_id)
+                with self._command_lock:
+                    self.bridge.set_torque_enabled(arm, arm.safety.torque_enabled)
+                    self.refresh_telemetry(arm.arm_id)
             arm.notes = "Emergency stop cleared. Re-enable torque before live motion."
 
     def neutralize(self) -> None:
@@ -660,9 +664,11 @@ class DualArmAdapter:
             return []
 
         try:
-            servos = self.bridge.read_telemetry(arm)
+            with self._command_lock:
+                servos = self.bridge.read_telemetry(arm)
         except Exception as exc:
-            self.bridge.disconnect(arm)
+            with self._command_lock:
+                self.bridge.disconnect(arm)
             arm.connected = False
             arm.telemetry.live = False
             arm.telemetry.error = str(exc)
@@ -770,11 +776,12 @@ class DualArmAdapter:
 
     def _apply_emergency_stop_to_arm(self, arm: ArmRuntime) -> None:
         try:
-            current = self.refresh_telemetry(arm.arm_id)
-            if current:
-                self.bridge.write_joint_targets(arm, {servo.name: servo.angle for servo in current})
-            self.bridge.set_torque_enabled(arm, False)
-            self.refresh_telemetry(arm.arm_id)
+            with self._command_lock:
+                current = self.refresh_telemetry(arm.arm_id)
+                if current:
+                    self.bridge.write_joint_targets(arm, {servo.name: servo.angle for servo in current})
+                self.bridge.set_torque_enabled(arm, False)
+                self.refresh_telemetry(arm.arm_id)
             arm.last_command_at = datetime.now(UTC).isoformat()
             arm.last_command_error = None
         except Exception as exc:
@@ -806,7 +813,8 @@ class DualArmAdapter:
             if not safe_targets:
                 return True
 
-            self.bridge.write_joint_targets(arm, safe_targets)
+            with self._command_lock:
+                self.bridge.write_joint_targets(arm, safe_targets)
             arm.last_command_at = datetime.now(UTC).isoformat()
             arm.last_command_error = None
             self.last_command_at = arm.last_command_at
@@ -937,7 +945,8 @@ class DualArmAdapter:
         safe_targets = self._limit_joint_targets(arm, current_map, targets)
         if not safe_targets:
             return
-        self.bridge.write_joint_targets(arm, safe_targets)
+        with self._command_lock:
+            self.bridge.write_joint_targets(arm, safe_targets)
         arm.last_command_at = datetime.now(UTC).isoformat()
         arm.last_command_error = None
         self.last_command_at = arm.last_command_at
