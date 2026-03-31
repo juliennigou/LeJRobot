@@ -7,6 +7,8 @@ from typing import Protocol
 from .models import (
     ArmType,
     MovementDefinition,
+    MovementFollowThroughConfig,
+    MovementFollowThroughProfile,
     MovementJointProfile,
     MovementPreset,
     MovementRunRequest,
@@ -29,6 +31,10 @@ WRIST_LEAN_NEUTRAL_POSE = {
     "wrist_roll": 0.0,
     "gripper": 8.0,
 }
+
+
+def clamp(value: float, lower: float, upper: float) -> float:
+    return min(upper, max(lower, value))
 
 
 def _wave_profiles(scale: float) -> list[MovementJointProfile]:
@@ -97,6 +103,64 @@ def _wrist_lean_profiles(scale: float) -> list[MovementJointProfile]:
     ]
 
 
+def _wave_follow_through_profiles() -> list[MovementFollowThroughProfile]:
+    return [
+        MovementFollowThroughProfile(
+            joint_name="elbow_flex",
+            source_joint="shoulder_lift",
+            gain_ratio=0.55,
+            delay_ratio=0.8,
+            damping_ratio=1.05,
+            settle_ratio=0.7,
+        ),
+        MovementFollowThroughProfile(
+            joint_name="wrist_flex",
+            source_joint="elbow_flex",
+            gain_ratio=1.0,
+            delay_ratio=1.0,
+            damping_ratio=0.88,
+            settle_ratio=1.0,
+        ),
+        MovementFollowThroughProfile(
+            joint_name="wrist_roll",
+            source_joint="wrist_flex",
+            gain_ratio=1.12,
+            delay_ratio=1.22,
+            damping_ratio=0.82,
+            settle_ratio=1.18,
+        ),
+    ]
+
+
+def _wrist_lean_follow_through_profiles() -> list[MovementFollowThroughProfile]:
+    return [
+        MovementFollowThroughProfile(
+            joint_name="elbow_flex",
+            source_joint="shoulder_pan",
+            gain_ratio=0.26,
+            delay_ratio=0.68,
+            damping_ratio=1.0,
+            settle_ratio=0.4,
+        ),
+        MovementFollowThroughProfile(
+            joint_name="wrist_roll",
+            source_joint="wrist_flex",
+            gain_ratio=1.0,
+            delay_ratio=0.95,
+            damping_ratio=0.84,
+            settle_ratio=1.0,
+        ),
+        MovementFollowThroughProfile(
+            joint_name="gripper",
+            source_joint="wrist_roll",
+            gain_ratio=0.38,
+            delay_ratio=1.15,
+            damping_ratio=0.72,
+            settle_ratio=0.62,
+        ),
+    ]
+
+
 WAVE_PRESETS = {
     "subtle": MovementPreset(
         preset_id="subtle",
@@ -108,6 +172,14 @@ WAVE_PRESETS = {
         softness=0.88,
         asymmetry=0.08,
         joint_profiles=_wave_profiles(0.82),
+        follow_through=MovementFollowThroughConfig(
+            enabled=True,
+            delay_seconds=0.11,
+            gain=0.16,
+            damping=0.46,
+            settle=0.1,
+            profiles=_wave_follow_through_profiles(),
+        ),
     ),
     "normal": MovementPreset(
         preset_id="normal",
@@ -119,6 +191,14 @@ WAVE_PRESETS = {
         softness=0.72,
         asymmetry=0.0,
         joint_profiles=_wave_profiles(1.0),
+        follow_through=MovementFollowThroughConfig(
+            enabled=True,
+            delay_seconds=0.12,
+            gain=0.22,
+            damping=0.4,
+            settle=0.14,
+            profiles=_wave_follow_through_profiles(),
+        ),
     ),
     "exaggerated": MovementPreset(
         preset_id="exaggerated",
@@ -130,6 +210,14 @@ WAVE_PRESETS = {
         softness=0.62,
         asymmetry=0.24,
         joint_profiles=_wave_profiles(1.18),
+        follow_through=MovementFollowThroughConfig(
+            enabled=True,
+            delay_seconds=0.14,
+            gain=0.28,
+            damping=0.32,
+            settle=0.18,
+            profiles=_wave_follow_through_profiles(),
+        ),
     ),
 }
 
@@ -144,6 +232,14 @@ WRIST_LEAN_PRESETS = {
         softness=0.76,
         asymmetry=0.0,
         joint_profiles=_wrist_lean_profiles(1.0),
+        follow_through=MovementFollowThroughConfig(
+            enabled=True,
+            delay_seconds=0.08,
+            gain=0.18,
+            damping=0.44,
+            settle=0.1,
+            profiles=_wrist_lean_follow_through_profiles(),
+        ),
     ),
 }
 
@@ -159,6 +255,7 @@ class OscillatorRuntimeConfig:
     asymmetry: float
     neutral_pose: dict[str, float]
     joint_profiles: tuple[MovementJointProfile, ...]
+    follow_through: "FollowThroughRuntimeConfig"
     debug: bool = False
 
     @property
@@ -226,6 +323,118 @@ class OscillatorMotionGenerator:
 
 
 @dataclass(frozen=True)
+class FollowThroughRuntimeProfile:
+    joint_name: str
+    source_joint: str
+    gain_ratio: float
+    delay_ratio: float
+    damping_ratio: float
+    settle_ratio: float
+
+
+@dataclass(frozen=True)
+class FollowThroughRuntimeConfig:
+    enabled: bool
+    delay_seconds: float
+    gain: float
+    damping: float
+    settle: float
+    profiles: tuple[FollowThroughRuntimeProfile, ...]
+
+
+class FollowThroughMotionGenerator:
+    def __init__(
+        self,
+        base: MotionGenerator,
+        *,
+        neutral_pose: dict[str, float],
+        config: FollowThroughRuntimeConfig,
+    ) -> None:
+        self.base = base
+        self.duration_seconds = base.duration_seconds
+        self.neutral_pose = neutral_pose
+        self.config = config
+        self._history: list[tuple[float, dict[str, float]]] = []
+        self._last_output: dict[str, float] = {}
+
+    def sample(self, elapsed: float) -> dict[str, float]:
+        clamped_elapsed = max(0.0, min(elapsed, self.duration_seconds))
+        base_targets = dict(self.base.sample(clamped_elapsed))
+        self._remember_history(clamped_elapsed, base_targets)
+        if not self.config.enabled or not self.config.profiles:
+            self._last_output = dict(base_targets)
+            return base_targets
+
+        output = dict(base_targets)
+        for profile in self.config.profiles:
+            source_delay = self.config.delay_seconds * profile.delay_ratio
+            delayed_source = self._interpolate_joint(profile.source_joint, clamped_elapsed - source_delay)
+            previous_source = self._interpolate_joint(profile.source_joint, clamped_elapsed - source_delay - 0.04)
+            source_neutral = self.neutral_pose.get(profile.source_joint, delayed_source)
+            desired = base_targets.get(profile.joint_name, self.neutral_pose.get(profile.joint_name, 0.0))
+
+            damping = clamp(self.config.damping * profile.damping_ratio, 0.0, 1.0)
+            gain = self.config.gain * profile.gain_ratio * (1.0 - 0.45 * damping)
+            settle = self.config.settle * profile.settle_ratio * (1.0 - 0.22 * damping)
+            source_delta = delayed_source - source_neutral
+            source_velocity = (delayed_source - previous_source) / 0.04
+            desired += gain * source_delta
+            desired += settle * source_velocity
+
+            previous_output = self._last_output.get(profile.joint_name, base_targets.get(profile.joint_name, desired))
+            response_alpha = clamp(0.18 + (1.0 - damping) * 0.5, 0.18, 0.7)
+            output[profile.joint_name] = round(previous_output + response_alpha * (desired - previous_output), 2)
+
+        self._last_output = dict(output)
+        return output
+
+    def debug_samples(self, sample_hz: float = 30.0) -> list[dict[str, float]]:
+        sample_period = 1.0 / max(sample_hz, 1.0)
+        samples: list[dict[str, float]] = []
+        elapsed = 0.0
+        while elapsed <= self.duration_seconds + 1e-6:
+            frame = self.sample(elapsed)
+            frame["time"] = round(elapsed, 4)
+            samples.append(frame)
+            elapsed += sample_period
+        return samples
+
+    def _remember_history(self, elapsed: float, frame: dict[str, float]) -> None:
+        if self._history and elapsed < self._history[-1][0]:
+            self._history = []
+            self._last_output = {}
+        if self._history and abs(self._history[-1][0] - elapsed) < 1e-6:
+            self._history[-1] = (elapsed, dict(frame))
+        else:
+            self._history.append((elapsed, dict(frame)))
+        if len(self._history) > 240:
+            self._history = self._history[-240:]
+
+    def _interpolate_joint(self, joint_name: str, elapsed: float) -> float:
+        if not self._history:
+            return self.neutral_pose.get(joint_name, 0.0)
+        clamped_time = max(0.0, elapsed)
+        earlier = self._history[0]
+        later = self._history[-1]
+        for index, (frame_time, frame) in enumerate(self._history):
+            if frame_time >= clamped_time:
+                later = (frame_time, frame)
+                if index > 0:
+                    earlier = self._history[index - 1]
+                else:
+                    earlier = later
+                break
+        earlier_time, earlier_frame = earlier
+        later_time, later_frame = later
+        earlier_value = earlier_frame.get(joint_name, self.neutral_pose.get(joint_name, 0.0))
+        later_value = later_frame.get(joint_name, earlier_value)
+        if abs(later_time - earlier_time) < 1e-6:
+            return later_value
+        ratio = (clamped_time - earlier_time) / (later_time - earlier_time)
+        return earlier_value + (later_value - earlier_value) * ratio
+
+
+@dataclass(frozen=True)
 class MovementSpec:
     definition: MovementDefinition
 
@@ -281,7 +490,14 @@ def get_movement(movement_id: str) -> MovementSpec | None:
 
 def build_motion_generator(request: MovementRunRequest) -> MotionGenerator:
     config = resolve_oscillator_runtime(request)
-    return OscillatorMotionGenerator(config)
+    base_generator = OscillatorMotionGenerator(config)
+    if config.follow_through.enabled and config.follow_through.profiles:
+        return FollowThroughMotionGenerator(
+            base_generator,
+            neutral_pose=dict(config.neutral_pose),
+            config=config.follow_through,
+        )
+    return base_generator
 
 
 def resolve_oscillator_runtime(request: MovementRunRequest) -> OscillatorRuntimeConfig:
@@ -306,13 +522,47 @@ def resolve_oscillator_runtime(request: MovementRunRequest) -> OscillatorRuntime
         asymmetry=request.asymmetry if request.asymmetry is not None else preset.asymmetry,
         neutral_pose=dict(definition.neutral_pose),
         joint_profiles=tuple(profile.model_copy(deep=True) for profile in preset.joint_profiles),
+        follow_through=FollowThroughRuntimeConfig(
+            enabled=(
+                request.follow_through_enabled
+                if request.follow_through_enabled is not None
+                else preset.follow_through.enabled
+            ),
+            delay_seconds=(
+                request.follow_through_delay_seconds
+                if request.follow_through_delay_seconds is not None
+                else preset.follow_through.delay_seconds
+            ),
+            gain=request.follow_through_gain if request.follow_through_gain is not None else preset.follow_through.gain,
+            damping=(
+                request.follow_through_damping
+                if request.follow_through_damping is not None
+                else preset.follow_through.damping
+            ),
+            settle=(
+                request.follow_through_settle
+                if request.follow_through_settle is not None
+                else preset.follow_through.settle
+            ),
+            profiles=tuple(
+                FollowThroughRuntimeProfile(
+                    joint_name=profile.joint_name,
+                    source_joint=profile.source_joint,
+                    gain_ratio=profile.gain_ratio,
+                    delay_ratio=profile.delay_ratio,
+                    damping_ratio=profile.damping_ratio,
+                    settle_ratio=profile.settle_ratio,
+                )
+                for profile in preset.follow_through.profiles
+            ),
+        ),
         debug=request.debug,
     )
 
 
 def sample_motion(request: MovementRunRequest, sample_hz: float = 30.0) -> list[dict[str, float]]:
     generator = build_motion_generator(request)
-    if isinstance(generator, OscillatorMotionGenerator):
+    if isinstance(generator, (OscillatorMotionGenerator, FollowThroughMotionGenerator)):
         return generator.debug_samples(sample_hz=sample_hz)
 
     sample_period = 1.0 / max(sample_hz, 1.0)

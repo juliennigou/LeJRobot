@@ -54,6 +54,11 @@ type MovementTuning = {
   amplitudeScale: number;
   softness: number;
   asymmetry: number;
+  followThroughEnabled: boolean;
+  followThroughDelaySeconds: number;
+  followThroughGain: number;
+  followThroughDamping: number;
+  followThroughSettle: number;
 };
 
 function defaultMovementTuning(movement: MovementDefinition): MovementTuning {
@@ -66,6 +71,11 @@ function defaultMovementTuning(movement: MovementDefinition): MovementTuning {
     amplitudeScale: defaultPreset?.amplitude_scale ?? 1.0,
     softness: defaultPreset?.softness ?? 0.72,
     asymmetry: defaultPreset?.asymmetry ?? 0.0,
+    followThroughEnabled: defaultPreset?.follow_through?.enabled ?? true,
+    followThroughDelaySeconds: defaultPreset?.follow_through?.delay_seconds ?? 0.12,
+    followThroughGain: defaultPreset?.follow_through?.gain ?? 0.2,
+    followThroughDamping: defaultPreset?.follow_through?.damping ?? 0.4,
+    followThroughSettle: defaultPreset?.follow_through?.settle ?? 0.14,
   };
 }
 
@@ -488,6 +498,11 @@ function App() {
           amplitude_scale: tuning?.amplitudeScale,
           softness: tuning?.softness,
           asymmetry: tuning ? clampAsymmetry(tuning.asymmetry) : undefined,
+          follow_through_enabled: tuning?.followThroughEnabled,
+          follow_through_delay_seconds: tuning?.followThroughDelaySeconds,
+          follow_through_gain: tuning?.followThroughGain,
+          follow_through_damping: tuning?.followThroughDamping,
+          follow_through_settle: tuning?.followThroughSettle,
           },
         );
         await refreshState();
@@ -730,6 +745,11 @@ function App() {
                   amplitudeScale: preset.amplitude_scale,
                   softness: preset.softness,
                   asymmetry: clampAsymmetry(preset.asymmetry),
+                  followThroughEnabled: preset.follow_through.enabled,
+                  followThroughDelaySeconds: preset.follow_through.delay_seconds,
+                  followThroughGain: preset.follow_through.gain,
+                  followThroughDamping: preset.follow_through.damping,
+                  followThroughSettle: preset.follow_through.settle,
                 };
               })
             }
@@ -747,6 +767,21 @@ function App() {
             }
             onAsymmetryChange={(movementId, value) =>
               updateMovementTuning(movementId, (current) => ({ ...current, asymmetry: clampAsymmetry(value) }))
+            }
+            onFollowThroughEnabledChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, followThroughEnabled: value }))
+            }
+            onFollowThroughDelayChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, followThroughDelaySeconds: value }))
+            }
+            onFollowThroughGainChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, followThroughGain: value }))
+            }
+            onFollowThroughDampingChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, followThroughDamping: value }))
+            }
+            onFollowThroughSettleChange={(movementId, value) =>
+              updateMovementTuning(movementId, (current) => ({ ...current, followThroughSettle: value }))
             }
             onRunMovement={(movementId) => void handleRunMovement(movementId)}
             onStopMovement={() => void handleStopMovement()}
