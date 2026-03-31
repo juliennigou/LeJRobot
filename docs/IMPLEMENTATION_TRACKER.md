@@ -26,11 +26,12 @@ The delivery sequence is:
 - `#31` Implement real dual-arm SO-101 hardware bridge and telemetry
 - `#30` Enforce live safety supervisor for torque, neutral, emergency stop, and step limits
 - `#32` Add manual hardware validation controls and status surfaces [done]
+- `#38` Add live 2D dual-arm visualizer to robot dashboard
 - `#34` Execute choreography on one live SO-101 arm
 - `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#31`
+- Current PR target: `#38`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -51,6 +52,7 @@ The delivery sequence is:
   - Spectrogram, rhythm, structure, and track-info tabs are wired to the real backend analysis payload
   - Hardware dashboard now separates verification-ready state from active telemetry state
   - Robot dashboard now shows real per-arm telemetry once a live connection is opened
+  - `#38` is adding a responsive side-by-side 2D visualizer so both arms can be seen moving from live telemetry
   - Live hardware execution is not implemented yet; the current dual-arm adapter remains read-only/dry-run for writes
 
 ## Workflow Rule

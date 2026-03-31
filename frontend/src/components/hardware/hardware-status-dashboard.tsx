@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import type { ArmAdapterState, RobotState, ServoState } from "@/lib/types";
+import { ArmTelemetryVisualizer } from "@/components/hardware/arm-telemetry-visualizer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -110,6 +111,8 @@ export function HardwareStatusDashboard({
           <SummaryTile label="Avg Motor Load" value={`${averageLoad.toFixed(1)}%`} icon={Gauge} />
         </CardContent>
       </Card>
+
+      <ArmTelemetryVisualizer arms={arms} />
 
       <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
         <Card className="border-white/10 bg-white/[0.04]">
