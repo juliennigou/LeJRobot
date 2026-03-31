@@ -6,6 +6,9 @@ export type SectionLabel = "intro" | "verse" | "chorus" | "bridge" | "break" | "
 export type MotionCueKind = "beat" | "downbeat" | "accent" | "section_change" | "hold";
 export type PoseFamily = "groove" | "sweep" | "punch" | "float";
 export type SymmetryRole = "lead" | "follow" | "mirror" | "unison" | "contrast";
+export type ArmType = "follower" | "leader";
+export type ArmChannel = "left" | "right";
+export type ExecutionMode = "mirror" | "unison" | "call_response" | "asymmetric";
 
 export interface RobotConfig {
   assembly: string;
@@ -151,12 +154,71 @@ export interface ServoState {
   motion_phase: "steady" | "ramping" | "accent";
 }
 
+export interface ArmJointConfig {
+  joint_name: string;
+  servo_id: number;
+  inverted: boolean;
+  offset_degrees: number;
+  min_angle: number;
+  max_angle: number;
+  max_speed: number;
+}
+
+export interface ArmPreviewState {
+  channel: ArmChannel;
+  current_pose_family?: PoseFamily | null;
+  current_cue_kind?: MotionCueKind | null;
+  symmetry_role?: SymmetryRole | null;
+  next_cue_time?: number | null;
+  note?: string | null;
+}
+
+export interface ArmSafetyEnvelope {
+  dry_run: boolean;
+  emergency_stop: boolean;
+  neutral_on_stop: boolean;
+  torque_enabled: boolean;
+  amplitude_scale: number;
+  speed_scale: number;
+  max_step_degrees: number;
+}
+
+export interface ArmAdapterState {
+  arm_id: string;
+  arm_type: ArmType;
+  channel: ArmChannel;
+  port?: string | null;
+  available: boolean;
+  connected: boolean;
+  calibrated: boolean;
+  safety: ArmSafetyEnvelope;
+  joints: ArmJointConfig[];
+  preview: ArmPreviewState;
+  notes?: string | null;
+}
+
+export interface DualArmExecutionState {
+  mode: ExecutionMode;
+  choreography_ready: boolean;
+  dry_run_required: boolean;
+  emergency_stop_active: boolean;
+  neutral_pose_scene: SceneName;
+  supported_modes: ExecutionMode[];
+}
+
+export interface DualArmState {
+  arms: ArmAdapterState[];
+  execution: DualArmExecutionState;
+}
+
 export interface RobotState {
   connected: boolean;
   status: string;
   mode: DanceMode;
   follower_id: string;
   follower_port: string;
+  leader_id?: string | null;
+  leader_port?: string | null;
   safety_step_ticks: number;
   latency_ms: number;
   sync_quality: number;
@@ -164,4 +226,5 @@ export interface RobotState {
   transport: TransportState;
   spectrum: number[];
   servos: ServoState[];
+  dual_arm: DualArmState;
 }

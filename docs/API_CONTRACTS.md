@@ -77,6 +77,55 @@ These contracts started ahead of the implementation. The real backend analysis p
 - `404`: track is unknown or choreography does not exist yet
 - `409`: choreography is blocked on analysis
 
+## Dual-Arm Adapter Endpoints
+
+### `GET /api/arms`
+- Response: `DualArmState`
+
+### `POST /api/arms/execution-mode`
+- Body:
+```json
+{
+  "mode": "mirror"
+}
+```
+- Response: `DualArmState`
+
+### `POST /api/arms/{arm_id}/connect`
+- Body:
+```json
+{
+  "connected": true
+}
+```
+- Response: `DualArmState`
+
+### `POST /api/arms/{arm_id}/safety`
+- Body:
+```json
+{
+  "dry_run": true,
+  "amplitude_scale": 0.82,
+  "speed_scale": 0.85,
+  "max_step_degrees": 10,
+  "joint_overrides": [
+    {
+      "joint_name": "wrist_roll",
+      "inverted": false,
+      "offset_degrees": 7.5,
+      "max_speed": 0.7
+    }
+  ]
+}
+```
+- Response: `DualArmState`
+
+### `POST /api/arms/emergency-stop`
+- Response: `DualArmState`
+
+### `POST /api/arms/neutral`
+- Response: `DualArmState`
+
 ## Canonical Models
 
 ### `TrackSummary`
@@ -126,10 +175,28 @@ These contracts started ahead of the implementation. The real backend analysis p
 - `symmetry_role`
 - `notes`
 
+### `DualArmState`
+- `arms`
+- `execution`
+
+### `ArmAdapterState`
+- `arm_id`
+- `arm_type`
+- `channel`
+- `port`
+- `available`
+- `connected`
+- `calibrated`
+- `safety`
+- `joints`
+- `preview`
+- `notes`
+
 ## Compatibility Notes
 - `motion_profile` remains present for compatibility with the existing UI.
 - `analysis_status` is now part of `TrackSummary`.
 - Local uploads should be selectable through the same UI card flow as Jamendo tracks.
 - `POST /api/analysis/start` now performs the analysis synchronously for Phase 1 while still updating the stored status lifecycle (`queued` -> `processing` -> `ready|error`).
 - Analysis results are cached on disk under `.data/analysis-cache/` keyed by `source + track_id`.
-- `AudioAnalysis.choreography` currently contains a basic beat/section-derived cue timeline. Richer dual-arm choreography generation is tracked separately in `#13`.
+- `AudioAnalysis.choreography` exposes the timeline consumed by the dual-arm adapter preview.
+- `GET /api/state` now returns a `dual_arm` block in addition to the legacy single-arm servo view so the frontend can evolve without breaking existing responses.
