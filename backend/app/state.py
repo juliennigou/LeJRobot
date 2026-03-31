@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 
-from .arms import DEFAULT_JOINT_LAYOUT, DualArmAdapter
+from .arms import DEFAULT_JOINT_LAYOUT, DualArmAdapter, LeRobotArmVerifier
 from .models import (
     AnalysisStartResponse,
     AnalysisStatus,
@@ -90,9 +90,9 @@ class ServoRuntime:
 
 
 class RobotStateStore:
-    def __init__(self, config: RobotConfig | None = None) -> None:
+    def __init__(self, config: RobotConfig | None = None, verifier: LeRobotArmVerifier | None = None) -> None:
         self.config = config or self._load_config()
-        self.arm_adapter = DualArmAdapter(self.config)
+        self.arm_adapter = DualArmAdapter(self.config, verifier=verifier)
         self.mode = DanceMode.IDLE
         self.transport = TransportState()
         self.status = "ready"
@@ -386,6 +386,11 @@ class RobotStateStore:
     def arms_snapshot(self) -> DualArmState:
         self._tick()
         return self.arm_adapter.snapshot(self.current_choreography(), self.transport.position_seconds)
+
+    def verify_arms(self) -> DualArmState:
+        self.arm_adapter.verify_all()
+        self._sync_follower_torque_state()
+        return self.arms_snapshot()
 
     def set_execution_mode(self, payload: ExecutionModeUpdate) -> DualArmState:
         self.arm_adapter.set_execution_mode(payload.mode)

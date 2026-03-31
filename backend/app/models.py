@@ -83,6 +83,16 @@ class ExecutionMode(str, Enum):
     ASYMMETRIC = "asymmetric"
 
 
+class ArmVerificationStatus(str, Enum):
+    IDLE = "idle"
+    READY = "ready"
+    MISSING_DEPENDENCY = "missing_dependency"
+    MISSING_PORT = "missing_port"
+    UNREACHABLE = "unreachable"
+    MISSING_CALIBRATION = "missing_calibration"
+    ERROR = "error"
+
+
 class RobotConfig(BaseModel):
     assembly: str = "Follower"
     follower_id: str = "follower_arm"
@@ -160,6 +170,19 @@ class ArmSafetyEnvelope(BaseModel):
     max_step_degrees: float = Field(default=12.0, ge=1.0, le=45.0)
 
 
+class ArmVerificationState(BaseModel):
+    status: ArmVerificationStatus = ArmVerificationStatus.IDLE
+    driver: str = "dry_run"
+    dependency_available: bool = False
+    port_present: bool = False
+    calibration_found: bool = False
+    calibration_path: str | None = None
+    expected_joint_count: int = Field(default=6, ge=0)
+    detected_joint_count: int = Field(default=0, ge=0)
+    last_checked_at: str | None = None
+    message: str | None = None
+
+
 class ArmAdapterState(BaseModel):
     arm_id: str
     arm_type: ArmType
@@ -170,6 +193,7 @@ class ArmAdapterState(BaseModel):
     calibrated: bool
     safety: ArmSafetyEnvelope
     joints: list[ArmJointConfig]
+    verification: ArmVerificationState
     preview: ArmPreviewState
     notes: str | None = None
 

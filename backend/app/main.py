@@ -105,6 +105,11 @@ def get_arms() -> DualArmState:
     return store.arms_snapshot()
 
 
+@app.post("/api/arms/verify", response_model=DualArmState)
+def verify_arms() -> DualArmState:
+    return store.verify_arms()
+
+
 @app.post("/api/arms/execution-mode", response_model=DualArmState)
 def update_execution_mode(payload: ExecutionModeUpdate) -> DualArmState:
     return store.set_execution_mode(payload)

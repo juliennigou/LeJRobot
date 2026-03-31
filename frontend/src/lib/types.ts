@@ -9,6 +9,14 @@ export type SymmetryRole = "lead" | "follow" | "mirror" | "unison" | "contrast";
 export type ArmType = "follower" | "leader";
 export type ArmChannel = "left" | "right";
 export type ExecutionMode = "mirror" | "unison" | "call_response" | "asymmetric";
+export type ArmVerificationStatus =
+  | "idle"
+  | "ready"
+  | "missing_dependency"
+  | "missing_port"
+  | "unreachable"
+  | "missing_calibration"
+  | "error";
 
 export interface RobotConfig {
   assembly: string;
@@ -183,6 +191,19 @@ export interface ArmSafetyEnvelope {
   max_step_degrees: number;
 }
 
+export interface ArmVerificationState {
+  status: ArmVerificationStatus;
+  driver: string;
+  dependency_available: boolean;
+  port_present: boolean;
+  calibration_found: boolean;
+  calibration_path?: string | null;
+  expected_joint_count: number;
+  detected_joint_count: number;
+  last_checked_at?: string | null;
+  message?: string | null;
+}
+
 export interface ArmAdapterState {
   arm_id: string;
   arm_type: ArmType;
@@ -193,6 +214,7 @@ export interface ArmAdapterState {
   calibrated: boolean;
   safety: ArmSafetyEnvelope;
   joints: ArmJointConfig[];
+  verification: ArmVerificationState;
   preview: ArmPreviewState;
   notes?: string | null;
 }
