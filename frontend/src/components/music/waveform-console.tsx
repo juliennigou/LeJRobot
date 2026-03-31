@@ -25,6 +25,14 @@ function activeSection(sections: SongSection[], currentTime: number) {
   );
 }
 
+function isAbortError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.name === "AbortError" || error.message.toLowerCase().includes("aborted");
+}
+
 export function WaveformConsole({
   track,
   analysis,
@@ -42,8 +50,18 @@ export function WaveformConsole({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const waveSurferRef = useRef<WaveSurfer | null>(null);
+  const onTimeChangeRef = useRef(onTimeChange);
+  const onTransportChangeRef = useRef(onTransportChange);
   const [ready, setReady] = useState(false);
   const [waveformError, setWaveformError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onTimeChangeRef.current = onTimeChange;
+  }, [onTimeChange]);
+
+  useEffect(() => {
+    onTransportChangeRef.current = onTransportChange;
+  }, [onTransportChange]);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -69,37 +87,47 @@ export function WaveformConsole({
     waveSurfer.on("ready", () => {
       setReady(true);
       setWaveformError(null);
-      onTimeChange(0);
+      onTimeChangeRef.current(0);
     });
 
     waveSurfer.on("timeupdate", (time) => {
-      onTimeChange(time);
+      onTimeChangeRef.current(time);
     });
 
     waveSurfer.on("play", () => {
-      onTransportChange(true);
+      onTransportChangeRef.current(true);
     });
 
     waveSurfer.on("pause", () => {
-      onTransportChange(false);
+      onTransportChangeRef.current(false);
     });
 
     waveSurfer.on("finish", () => {
-      onTimeChange(0);
-      onTransportChange(false);
+      onTimeChangeRef.current(0);
+      onTransportChangeRef.current(false);
     });
 
     waveSurfer.on("error", (error) => {
+      if (isAbortError(error)) {
+        return;
+      }
       setReady(false);
       setWaveformError(error instanceof Error ? error.message : String(error));
-      onTransportChange(false);
+      onTransportChangeRef.current(false);
     });
 
     return () => {
-      waveSurfer.destroy();
+      waveSurfer.unAll();
+      try {
+        waveSurfer.destroy();
+      } catch (error) {
+        if (!isAbortError(error)) {
+          throw error;
+        }
+      }
       waveSurferRef.current = null;
     };
-  }, [onTimeChange, onTransportChange]);
+  }, []);
 
   useEffect(() => {
     const waveSurfer = waveSurferRef.current;
@@ -109,15 +137,22 @@ export function WaveformConsole({
 
     setReady(false);
     setWaveformError(null);
-    onTimeChange(0);
+    onTimeChangeRef.current(0);
 
     if (!track?.audio_url) {
       waveSurfer.empty();
       return;
     }
 
-    void waveSurfer.load(track.audio_url);
-  }, [track?.audio_url, track?.track_id, onTimeChange, onTransportChange]);
+    void waveSurfer.load(track.audio_url).catch((error) => {
+      if (isAbortError(error)) {
+        return;
+      }
+      setReady(false);
+      setWaveformError(error instanceof Error ? error.message : String(error));
+      onTransportChangeRef.current(false);
+    });
+  }, [track?.audio_url, track?.track_id]);
 
   const duration = analysis?.duration_seconds ?? track?.duration_seconds ?? 0;
   const markerDuration = duration > 0 ? duration : 1;

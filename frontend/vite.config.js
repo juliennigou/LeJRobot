@@ -18,6 +18,10 @@ export default defineConfig({
         target: apiProxyTarget,
         changeOrigin: true,
       },
+      "/media": {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
     },
   },
 });

@@ -219,7 +219,7 @@ class ModeUpdate(BaseModel):
 
 class TransportUpdate(BaseModel):
     track_name: str
-    bpm: int = Field(ge=40, le=220)
+    bpm: float = Field(ge=40, le=220)
     energy: float = Field(ge=0.0, le=1.0)
     playing: bool = True
 
