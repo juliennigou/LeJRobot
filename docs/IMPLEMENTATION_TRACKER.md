@@ -16,15 +16,15 @@ The delivery sequence is:
 - `#11` Add local audio upload and analyzable track source pipeline [done]
 - `#12` Implement backend audio analysis pipeline with librosa and caching [done]
 - `#13` Generate dual-arm choreography timelines from analysis data [done]
-- `#14` Build waveform-first music console on the frontend
-- `#15` Add spectrogram, rhythm, structure, and track-info analysis tabs
-- `#16` Replace synthetic backend motion data with real audio analysis state
-- `#17` Prepare dual-arm LeRobot adapter and safety envelope
+- `#14` Build waveform-first music console on the frontend [done]
+- `#15` Add spectrogram, rhythm, structure, and track-info analysis tabs [done]
+- `#16` Replace synthetic backend motion data with real audio analysis state [done]
+- `#17` Prepare dual-arm LeRobot adapter and safety envelope [done]
 - `#19` Add GitHub Actions CI for backend, frontend, and smoke validation
 - `#20` Dockerize frontend and backend with docker compose startup
 
 ## Current Status
-- Current PR target: `#16`
+- Current PR target: `#17`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -32,11 +32,13 @@ The delivery sequence is:
   - Analysis results are cached on disk under `.data/analysis-cache/`
   - Dual-arm choreography output is section-aware and exposes left/right arm cue channels
   - `/api/state` now derives transport BPM, energy, spectrum bars, and autonomous servo modulation from cached analysis when it exists
+  - Dual-arm adapter profiles now exist for leader + follower with dry-run defaults, safety envelopes, execution modes, and emergency-stop/neutral planning endpoints
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
   - Minimal local upload/select flow exists without redesigning the page
   - Analysis tabs are wired to the real backend analysis payload
+  - Waveform-first playback and analysis workstation views are in place
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.

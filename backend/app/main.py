@@ -11,8 +11,12 @@ from .models import (
     AnalysisStartResponse,
     AnalysisStatus,
     AnalysisStatusResponse,
+    ArmConnectionUpdate,
+    ArmSafetyUpdate,
     AudioAnalysis,
     ChoreographyTimeline,
+    DualArmState,
+    ExecutionModeUpdate,
     ModeUpdate,
     PulseUpdate,
     RobotConfig,
@@ -94,6 +98,42 @@ def update_servo(servo_id: int, payload: ServoUpdate) -> RobotState:
         return store.update_servo(servo_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/arms", response_model=DualArmState)
+def get_arms() -> DualArmState:
+    return store.arms_snapshot()
+
+
+@app.post("/api/arms/execution-mode", response_model=DualArmState)
+def update_execution_mode(payload: ExecutionModeUpdate) -> DualArmState:
+    return store.set_execution_mode(payload)
+
+
+@app.post("/api/arms/{arm_id}/connect", response_model=DualArmState)
+def update_arm_connection(arm_id: str, payload: ArmConnectionUpdate) -> DualArmState:
+    try:
+        return store.set_arm_connection(arm_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/arms/{arm_id}/safety", response_model=DualArmState)
+def update_arm_safety(arm_id: str, payload: ArmSafetyUpdate) -> DualArmState:
+    try:
+        return store.update_arm_safety(arm_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/arms/emergency-stop", response_model=DualArmState)
+def emergency_stop() -> DualArmState:
+    return store.emergency_stop()
+
+
+@app.post("/api/arms/neutral", response_model=DualArmState)
+def move_arms_to_neutral() -> DualArmState:
+    return store.move_to_neutral()
 
 
 @app.get("/api/tracks/search", response_model=TrackSearchResponse)

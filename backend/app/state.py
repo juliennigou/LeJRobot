@@ -7,13 +7,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 
+from .arms import DEFAULT_JOINT_LAYOUT, DualArmAdapter
 from .models import (
     AnalysisStartResponse,
     AnalysisStatus,
     AnalysisStatusResponse,
+    ArmConnectionUpdate,
+    ArmSafetyUpdate,
     AudioAnalysis,
     ChoreographyTimeline,
     DanceMode,
+    DualArmState,
+    ExecutionMode,
+    ExecutionModeUpdate,
     MotionCue,
     PulseUpdate,
     RobotConfig,
@@ -33,14 +39,7 @@ from .models import (
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SETUP_PATH = ROOT_DIR / ".data" / "setup.json"
 
-SERVO_LAYOUT = [
-    (1, "shoulder_pan"),
-    (2, "shoulder_lift"),
-    (3, "elbow_flex"),
-    (4, "wrist_flex"),
-    (5, "wrist_roll"),
-    (6, "gripper"),
-]
+SERVO_LAYOUT = DEFAULT_JOINT_LAYOUT
 
 SCENES: dict[SceneName, dict[str, float]] = {
     SceneName.IDLE: {
@@ -90,18 +89,10 @@ class ServoRuntime:
     motion_phase: str = "steady"
 
 
-class LeRobotBridge:
-    def __init__(self, config: RobotConfig) -> None:
-        self.config = config
-
-    def connection_ok(self) -> bool:
-        return bool(self.config.follower_port)
-
-
 class RobotStateStore:
-    def __init__(self) -> None:
-        self.config = self._load_config()
-        self.bridge = LeRobotBridge(self.config)
+    def __init__(self, config: RobotConfig | None = None) -> None:
+        self.config = config or self._load_config()
+        self.arm_adapter = DualArmAdapter(self.config)
         self.mode = DanceMode.IDLE
         self.transport = TransportState()
         self.status = "ready"
@@ -119,6 +110,7 @@ class RobotStateStore:
             for servo_id, name in SERVO_LAYOUT
         ]
         self._set_scene_targets(SceneName.IDLE)
+        self._sync_follower_torque_state()
 
     def _load_config(self) -> RobotConfig:
         if not SETUP_PATH.exists():
@@ -131,6 +123,10 @@ class RobotStateStore:
         now = monotonic()
         delta = max(now - self.last_tick, 0.05)
         self.last_tick = now
+
+        if self.arm_adapter.emergency_stop_active():
+            self.transport.playing = False
+            self.mode = DanceMode.IDLE
 
         if self.transport.playing:
             self.transport.position_seconds += delta
@@ -221,14 +217,17 @@ class RobotStateStore:
 
     def snapshot(self) -> RobotState:
         self._tick()
-        connected = self.bridge.connection_ok()
+        connected = self.arm_adapter.any_connected()
         spectrum = self._build_spectrum()
+        dual_arm = self.arm_adapter.snapshot(self.current_choreography(), self.transport.position_seconds)
         return RobotState(
             connected=connected,
             status=self.status,
             mode=self.mode,
             follower_id=self.config.follower_id,
             follower_port=self.config.follower_port,
+            leader_id=self.config.leader_id,
+            leader_port=self.config.leader_port,
             safety_step_ticks=self.config.safety_step_ticks,
             latency_ms=self.latency_ms,
             sync_quality=self.sync_quality,
@@ -248,6 +247,7 @@ class RobotStateStore:
                 )
                 for servo in self.servos
             ],
+            dual_arm=dual_arm,
         )
 
     def _build_spectrum(self) -> list[int]:
@@ -276,6 +276,8 @@ class RobotStateStore:
         return bars
 
     def set_mode(self, mode: DanceMode) -> RobotState:
+        if self.arm_adapter.emergency_stop_active() and mode != DanceMode.IDLE:
+            mode = DanceMode.IDLE
         self.mode = mode
         if mode == DanceMode.IDLE:
             self.apply_scene(SceneName.IDLE)
@@ -286,8 +288,8 @@ class RobotStateStore:
         self.transport.track_name = payload.track_name
         self.transport.bpm = payload.bpm
         self.transport.energy = payload.energy
-        self.transport.playing = payload.playing
-        if payload.playing and self.mode == DanceMode.IDLE:
+        self.transport.playing = False if self.arm_adapter.emergency_stop_active() else payload.playing
+        if self.transport.playing and self.mode == DanceMode.IDLE:
             self.mode = DanceMode.AUTONOMOUS
         return self.snapshot()
 
@@ -298,13 +300,15 @@ class RobotStateStore:
     def pulse(self, payload: PulseUpdate) -> RobotState:
         self.transport.bpm = payload.bpm
         self.transport.energy = payload.energy
-        self.transport.playing = True
-        self.mode = DanceMode.PULSE
+        self.transport.playing = not self.arm_adapter.emergency_stop_active()
+        self.mode = DanceMode.IDLE if self.arm_adapter.emergency_stop_active() else DanceMode.PULSE
         if self.scene == SceneName.IDLE:
             self.scene = SceneName.BLOOM
         return self.snapshot()
 
     def update_servo(self, servo_id: int, payload: ServoUpdate) -> RobotState:
+        if self.arm_adapter.emergency_stop_active():
+            raise ValueError("Emergency stop is active")
         servo = next((item for item in self.servos if item.id == servo_id), None)
         if servo is None:
             raise ValueError(f"Unknown servo id: {servo_id}")
@@ -314,6 +318,7 @@ class RobotStateStore:
             servo.target_angle = payload.target_angle
         if payload.torque_enabled is not None:
             servo.torque_enabled = payload.torque_enabled
+            self._sync_follower_torque_state()
 
         return self.snapshot()
 
@@ -377,6 +382,43 @@ class RobotStateStore:
         if track is None:
             return None
         return self.choreography_results.get(self._track_key(track.source, track.track_id))
+
+    def arms_snapshot(self) -> DualArmState:
+        self._tick()
+        return self.arm_adapter.snapshot(self.current_choreography(), self.transport.position_seconds)
+
+    def set_execution_mode(self, payload: ExecutionModeUpdate) -> DualArmState:
+        self.arm_adapter.set_execution_mode(payload.mode)
+        return self.arms_snapshot()
+
+    def set_arm_connection(self, arm_id: str, payload: ArmConnectionUpdate) -> DualArmState:
+        self.arm_adapter.set_connection(arm_id, payload.connected)
+        self._sync_follower_torque_state()
+        return self.arms_snapshot()
+
+    def update_arm_safety(self, arm_id: str, payload: ArmSafetyUpdate) -> DualArmState:
+        self.arm_adapter.update_safety(arm_id, payload)
+        if self.arm_adapter.emergency_stop_active():
+            self.transport.playing = False
+            self.mode = DanceMode.IDLE
+            self._set_scene_targets(SceneName.IDLE)
+        self._sync_follower_torque_state()
+        return self.arms_snapshot()
+
+    def emergency_stop(self) -> DualArmState:
+        self.arm_adapter.emergency_stop()
+        self.transport.playing = False
+        self.mode = DanceMode.IDLE
+        self._set_scene_targets(SceneName.IDLE)
+        self._sync_follower_torque_state()
+        return self.arms_snapshot()
+
+    def move_to_neutral(self) -> DualArmState:
+        self.arm_adapter.neutralize()
+        self.transport.playing = False
+        self.mode = DanceMode.IDLE
+        self._set_scene_targets(SceneName.IDLE)
+        return self.arms_snapshot()
 
     def queue_analysis(self, payload: TrackReference) -> AnalysisStartResponse:
         self.analysis_results.pop(self._track_key(payload.source, payload.track_id), None)
@@ -509,6 +551,14 @@ class RobotStateStore:
         end = min(len(values), index + radius + 1)
         window = values[start:end] or [values[max(0, min(len(values) - 1, index))]]
         return sum(window) / len(window)
+
+    def _sync_follower_torque_state(self) -> None:
+        follower = self.arm_adapter.arms.get(self.config.follower_id)
+        if follower is None:
+            return
+        torque_enabled = follower.safety.torque_enabled and not follower.safety.emergency_stop
+        for servo in self.servos:
+            servo.torque_enabled = torque_enabled
 
     def _servo_driver(
         self,
