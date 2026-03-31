@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Activity, ChevronDown, Info, Loader2, Play, Square, Waves } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Activity, ChevronDown, Info, Loader2, Play, Square } from "lucide-react";
 
 import type {
   ArmAdapterState,
@@ -107,14 +107,6 @@ export function MovementLibraryPage({
   };
 
   const [expandedMovementId, setExpandedMovementId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!library?.movements.length) {
-      setExpandedMovementId(null);
-      return;
-    }
-    setExpandedMovementId((current) => current ?? library.movements[0]?.movement_id ?? null);
-  }, [library]);
 
   const selectedArm = arms.find((arm) => arm.arm_id === selectedArmId) ?? null;
   const readyArms = useMemo(() => arms.filter((arm) => armReady(arm)), [arms]);
@@ -225,12 +217,6 @@ export function MovementLibraryPage({
           const tuning = movementTunings[movement.movement_id] ?? defaultMovementTuning(movement);
           const selectedPreset =
             movement.presets.find((preset) => preset.preset_id === tuning.presetId) ?? movement.presets[0] ?? null;
-          const phaseChain = selectedPreset?.joint_profiles
-            .map((profile) => `${titleize(profile.joint_name)} ${profile.phase_delay_radians.toFixed(2)}rad`)
-            .join(" · ");
-          const followThroughChain = selectedPreset?.follow_through.profiles
-            .map((profile) => `${titleize(profile.source_joint)} → ${titleize(profile.joint_name)}`)
-            .join(" · ");
           const isExpanded = expandedMovementId === movement.movement_id;
           const isRunning = active.status === "running" && active.movement_id === movement.movement_id;
           const runDisabled = busyAction !== null || active.status === "running" || !canRunCurrentScope;
@@ -310,23 +296,22 @@ export function MovementLibraryPage({
                           {selectedPreset ? <p className="mt-3 text-sm text-slate-400">{selectedPreset.summary}</p> : null}
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <MetaTile label="Base Pose" value={`${Object.keys(movement.neutral_pose).length} joints`} note="prepared starting pose" />
-                          <MetaTile label="Focus" value={movement.recommended_arm ?? "follower"} note="recommended arm" />
-                          <MetaTile label="Phase Chain" value={selectedPreset ? `${selectedPreset.joint_profiles.length} joints` : "--"} note="travel order encoded" />
-                          <MetaTile label="Follow-through" value={tuning.followThroughEnabled ? "On" : "Off"} note="secondary reactive motion" />
+                        <div className="rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm font-semibold text-white">Base pose</p>
+                          <p className="mt-1 text-sm text-slate-400">Prepared starting angles before the motion layer begins.</p>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {Object.entries(movement.neutral_pose).map(([joint, value]) => (
+                              <Badge key={joint} variant="muted">
+                                {titleize(joint)} {value.toFixed(0)}°
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
 
-                        <details className="group rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
-                          <summary className="cursor-pointer list-none text-sm font-medium text-white">
-                            Motion details
-                          </summary>
-                          <div className="mt-3 space-y-3 text-sm text-slate-400">
-                            <p>{movement.description}</p>
-                            <p>{phaseChain ?? "No phase data on this preset."}</p>
-                            {followThroughChain ? <p>Follow-through: {followThroughChain}</p> : null}
-                          </div>
-                        </details>
+                        <div className="rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm font-semibold text-white">About this movement</p>
+                          <p className="mt-2 text-sm text-slate-400">{movement.description}</p>
+                        </div>
                       </div>
 
                       <div className="space-y-4">
@@ -470,12 +455,12 @@ function JointGuideInfo() {
     <div className="group relative">
       <button
         type="button"
-        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-300 transition hover:border-white/20 hover:text-white"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-300 transition hover:border-white/20 hover:text-white"
+        aria-label="Joint roles"
       >
         <Info className="h-4 w-4" />
-        Joint roles
       </button>
-      <div className="pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-20 w-72 rounded-[22px] border border-white/10 bg-slate-950/95 p-4 opacity-0 shadow-2xl transition group-hover:opacity-100">
+      <div className="pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-20 w-72 rounded-[22px] border border-white/10 bg-slate-950/95 p-4 opacity-0 shadow-2xl transition group-hover:opacity-100 group-focus-within:opacity-100">
         <p className="text-sm font-semibold text-white">6 joint roles</p>
         <div className="mt-3 space-y-3">
           {JOINT_GUIDE.map((joint) => (
@@ -511,16 +496,6 @@ function ScopePill({
     >
       {children}
     </button>
-  );
-}
-
-function MetaTile({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
-      <p className="hud-label">{label}</p>
-      <p className="mt-3 text-lg font-semibold text-white">{value}</p>
-      <p className="mt-1 text-sm text-slate-400">{note}</p>
-    </div>
   );
 }
 
