@@ -29,10 +29,14 @@ from .models import (
     PulseUpdate,
     RobotConfig,
     RobotState,
+    ScheduleConfig,
+    ScheduleConfigUpdate,
+    SchedulePhraseOverride,
+    SchedulePhraseUpdate,
     SceneName,
     ServoState,
-    SymmetryRole,
     ServoUpdate,
+    SymmetryRole,
     TrackReference,
     TrackSummary,
     TrackSelection,
@@ -119,6 +123,7 @@ class RobotStateStore:
         self.analysis_results: dict[tuple[TrackSource, str], AudioAnalysis] = {}
         self.choreography_results: dict[tuple[TrackSource, str], ChoreographyTimeline] = {}
         self.schedule_results: dict[tuple[TrackSource, str], ChoreographySchedule] = {}
+        self.schedule_configs: dict[tuple[TrackSource, str], ScheduleConfig] = {}
         self.scheduler = ChoreographyScheduler(list_movements())
         self.servos = [
             ServoRuntime(id=servo_id, name=name, angle=0.0, target_angle=0.0)
@@ -537,6 +542,42 @@ class RobotStateStore:
         self._status_for_reference(payload)
         return self.schedule_results.get(self._track_key(payload.source, payload.track_id))
 
+    def update_schedule_config(self, payload: TrackReference, update: ScheduleConfigUpdate) -> RobotState:
+        key = self._track_key(payload.source, payload.track_id)
+        existing = self.schedule_configs.get(key, ScheduleConfig())
+        next_config = existing.model_copy(
+            update={
+                "style_id": update.style_id or existing.style_id,
+                "density_scale": update.density_scale if update.density_scale is not None else existing.density_scale,
+                "intensity_scale": update.intensity_scale if update.intensity_scale is not None else existing.intensity_scale,
+            }
+        )
+        self.schedule_configs[key] = next_config
+        self._rebuild_schedule_for_reference(payload, note="Schedule style updated.")
+        return self.snapshot()
+
+    def update_schedule_phrase(self, payload: TrackReference, phrase_id: str, update: SchedulePhraseUpdate) -> RobotState:
+        key = self._track_key(payload.source, payload.track_id)
+        existing = self.schedule_configs.get(key, ScheduleConfig())
+        overrides = {override.phrase_id: override for override in existing.phrase_overrides}
+
+        if update.clear_override:
+            overrides.pop(phrase_id, None)
+        else:
+            current = overrides.get(phrase_id, SchedulePhraseOverride(phrase_id=phrase_id))
+            overrides[phrase_id] = current.model_copy(
+                update={
+                    "movement_id": update.movement_id if update.movement_id is not None else current.movement_id,
+                    "preset_id": update.preset_id if update.preset_id is not None else current.preset_id,
+                    "execution_mode": update.execution_mode if update.execution_mode is not None else current.execution_mode,
+                    "target_scope": update.target_scope if update.target_scope is not None else current.target_scope,
+                }
+            )
+
+        self.schedule_configs[key] = existing.model_copy(update={"phrase_overrides": list(overrides.values())})
+        self._rebuild_schedule_for_reference(payload, note="Phrase mapping updated.")
+        return self.snapshot()
+
     def remember_track(self, track: TrackSummary) -> TrackSummary:
         self.known_tracks[self._track_key(track.source, track.track_id)] = track
         return track
@@ -564,7 +605,7 @@ class RobotStateStore:
         key = self._track_key(analysis.source, analysis.track_id)
         self.analysis_results[key] = analysis
         self.choreography_results[key] = analysis.choreography
-        self.schedule_results[key] = self.scheduler.build_schedule(analysis)
+        self.schedule_results[key] = self.scheduler.build_schedule(analysis, config=self.schedule_configs.get(key))
 
         known_track = self.known_tracks.get(key)
         if known_track is not None:
@@ -608,6 +649,20 @@ class RobotStateStore:
         if not analysis.energy.rms:
             return 0.0
         return sum(analysis.energy.rms) / len(analysis.energy.rms)
+
+    def _rebuild_schedule_for_reference(self, payload: TrackReference, note: str) -> None:
+        key = self._track_key(payload.source, payload.track_id)
+        analysis = self.analysis_results.get(key)
+        if analysis is None:
+            raise ValueError("Audio analysis is required before editing the schedule.")
+        self.schedule_results[key] = self.scheduler.build_schedule(analysis, config=self.schedule_configs.get(key))
+        current_track = self.transport.current_track
+        if current_track and current_track.track_id == payload.track_id and current_track.source == payload.source:
+            if self.mode == DanceMode.AUTONOMOUS:
+                self.arm_adapter.stop_movement()
+                self.transport.playing = False
+                self.mode = DanceMode.IDLE
+            self._clear_autonomy_state(note)
 
     def _sync_transport_from_analysis(self, analysis: AudioAnalysis | None) -> None:
         if analysis is None:

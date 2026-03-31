@@ -1,6 +1,13 @@
-import type { AudioAnalysis, ChoreographySchedule, ChoreographyTimeline } from "@/lib/types";
+import type {
+  AudioAnalysis,
+  ChoreographySchedule,
+  ChoreographyTimeline,
+  ExecutionMode,
+  MovementLibraryState,
+} from "@/lib/types";
 
 import { formatDuration } from "@/lib/analysis-view";
+import { Button } from "@/components/ui/button";
 
 function cueCountInWindow(times: number[], start: number, end: number) {
   return times.filter((time) => time >= start && time < end).length;
@@ -10,10 +17,23 @@ export function StructurePanel({
   analysis,
   choreography,
   schedule,
+  movementLibrary,
+  busyAction,
+  onPhraseMappingChange,
 }: {
   analysis: AudioAnalysis | null;
   choreography: ChoreographyTimeline | null;
   schedule: ChoreographySchedule | null;
+  movementLibrary: MovementLibraryState | null;
+  busyAction: string | null;
+  onPhraseMappingChange: (
+    phraseId: string,
+    payload: {
+      movement_id?: string;
+      preset_id?: string;
+      execution_mode?: ExecutionMode;
+    },
+  ) => void;
 }) {
   if (!analysis) {
     return <EmptyPanel text="Structure markers show up after the backend returns a section timeline." />;
@@ -94,9 +114,15 @@ export function StructurePanel({
           />
           {schedule ? (
             <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-base font-semibold text-white">First Scheduled Phrases</p>
+              <p className="text-base font-semibold text-white">Phrase Mapping</p>
+              <p className="mt-2 text-sm text-slate-400">
+                Override movement, preset, or execution mode for each phrase window. Changes are saved back into the scheduler output.
+              </p>
               <div className="mt-4 space-y-3">
-                {schedule.phrases.slice(0, 4).map((phrase) => (
+                {schedule.phrases.slice(0, 8).map((phrase) => {
+                  const movement = movementLibrary?.movements.find((entry) => entry.movement_id === phrase.movement_id) ?? null;
+                  const phraseBusy = busyAction === `phrase:${phrase.phrase_id}`;
+                  return (
                   <div key={phrase.phrase_id} className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className="text-sm font-semibold capitalize text-white">
@@ -109,8 +135,62 @@ export function StructurePanel({
                     <p className="mt-2 text-xs text-slate-400">
                       {phrase.section_label} · {phrase.execution_mode} · intensity {Math.round(phrase.intensity * 100)}%
                     </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {movementLibrary?.movements.map((entry) => (
+                        <button
+                          key={`${phrase.phrase_id}-${entry.movement_id}`}
+                          type="button"
+                          onClick={() => onPhraseMappingChange(phrase.phrase_id, { movement_id: entry.movement_id })}
+                          className={`rounded-full border px-3 py-1 text-xs transition ${
+                            phrase.movement_id === entry.movement_id
+                              ? "border-primary bg-primary/20 text-white"
+                              : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-primary/40 hover:text-white"
+                          }`}
+                        >
+                          {entry.name}
+                        </button>
+                      ))}
+                    </div>
+                    {movement ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {movement.presets.map((preset) => (
+                          <button
+                            key={`${phrase.phrase_id}-${preset.preset_id}`}
+                            type="button"
+                            onClick={() => onPhraseMappingChange(phrase.phrase_id, { movement_id: movement.movement_id, preset_id: preset.preset_id })}
+                            className={`rounded-full border px-3 py-1 text-xs transition ${
+                              phrase.preset_id === preset.preset_id
+                                ? "border-sky-300 bg-sky-400/20 text-white"
+                                : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-sky-300/40 hover:text-white"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(["unison", "mirror"] as ExecutionMode[]).map((mode) => (
+                        <button
+                          key={`${phrase.phrase_id}-${mode}`}
+                          type="button"
+                          onClick={() => onPhraseMappingChange(phrase.phrase_id, { execution_mode: mode })}
+                          className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] transition ${
+                            phrase.execution_mode === mode
+                              ? "border-white/40 bg-white/15 text-white"
+                              : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/30 hover:text-white"
+                          }`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                      <Button type="button" variant="ghost" size="sm" disabled>
+                        {phraseBusy ? "Saving..." : "Mapped"}
+                      </Button>
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : null}

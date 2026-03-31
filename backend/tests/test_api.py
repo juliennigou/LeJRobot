@@ -204,6 +204,32 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(schedule_payload["phrase_count"], len(schedule_payload["phrases"]))
         self.assertTrue(all(phrase["target_scope"] == "both" for phrase in schedule_payload["phrases"]))
         self.assertTrue(all(phrase["execution_mode"] in {"mirror", "unison"} for phrase in schedule_payload["phrases"]))
+        self.assertEqual(schedule_payload["style_id"], "baseline")
+
+        style_update = self.client.post(
+            f"/api/schedule/{track['source']}/{track['track_id']}/config",
+            json={"style_id": "punchy", "density_scale": 1.15, "intensity_scale": 1.1},
+        )
+        self.assertEqual(style_update.status_code, 200)
+        updated_schedule = style_update.json()["schedule"]
+        self.assertEqual(updated_schedule["style_id"], "punchy")
+        self.assertEqual(updated_schedule["config"]["style_id"], "punchy")
+        self.assertAlmostEqual(updated_schedule["config"]["density_scale"], 1.15)
+        self.assertAlmostEqual(updated_schedule["config"]["intensity_scale"], 1.1)
+
+        first_phrase = updated_schedule["phrases"][0]
+        override_movement = "wrist_lean" if first_phrase["movement_id"] == "wave" else "wave"
+        override_preset = "normal" if override_movement == "wrist_lean" else "subtle"
+        phrase_update = self.client.post(
+            f"/api/schedule/{track['source']}/{track['track_id']}/phrases/{first_phrase['phrase_id']}",
+            json={"movement_id": override_movement, "preset_id": override_preset, "execution_mode": "unison"},
+        )
+        self.assertEqual(phrase_update.status_code, 200)
+        phrase_schedule = phrase_update.json()["schedule"]
+        remapped_phrase = next(phrase for phrase in phrase_schedule["phrases"] if phrase["phrase_id"] == first_phrase["phrase_id"])
+        self.assertEqual(remapped_phrase["movement_id"], override_movement)
+        self.assertEqual(remapped_phrase["preset_id"], override_preset)
+        self.assertEqual(remapped_phrase["execution_mode"], "unison")
 
         arms = self.client.get("/api/arms")
         self.assertEqual(arms.status_code, 200)

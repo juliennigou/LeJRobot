@@ -243,3 +243,36 @@ export function fetchChoreography(trackId: string, source: TrackSource) {
 export function fetchSchedule(trackId: string, source: TrackSource) {
   return request<ChoreographySchedule>(`/api/schedule/${source}/${trackId}`);
 }
+
+export function updateScheduleConfig(
+  trackId: string,
+  source: TrackSource,
+  payload: {
+    style_id?: string;
+    density_scale?: number;
+    intensity_scale?: number;
+  },
+) {
+  return request<RobotState>(`/api/schedule/${source}/${trackId}/config`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateSchedulePhrase(
+  trackId: string,
+  source: TrackSource,
+  phraseId: string,
+  payload: {
+    movement_id?: string;
+    preset_id?: string;
+    execution_mode?: "mirror" | "unison" | "call_response" | "asymmetric";
+    target_scope?: "single" | "both";
+    clear_override?: boolean;
+  },
+) {
+  return request<RobotState>(`/api/schedule/${source}/${trackId}/phrases/${phraseId}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

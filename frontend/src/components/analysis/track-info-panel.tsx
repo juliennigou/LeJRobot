@@ -4,11 +4,13 @@ import type {
   AudioAnalysis,
   ChoreographySchedule,
   ChoreographyTimeline,
+  ScheduleConfig,
   TrackSummary,
 } from "@/lib/types";
 
 import { formatDate, formatDuration } from "@/lib/analysis-view";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 
 export function TrackInfoPanel({
   track,
@@ -19,6 +21,13 @@ export function TrackInfoPanel({
   analysisStatus,
   analysisLoading,
   analysisError,
+  scheduleDraft,
+  scheduleBusy,
+  onScheduleStyleChange,
+  onScheduleDensityChange,
+  onScheduleIntensityChange,
+  onApplyScheduleStyle,
+  onResetScheduleStyle,
   autonomyBusy,
   onStartAutonomy,
   onStopAutonomy,
@@ -31,10 +40,25 @@ export function TrackInfoPanel({
   analysisStatus: AnalysisStatusResponse | null;
   analysisLoading: boolean;
   analysisError: string | null;
+  scheduleDraft: ScheduleConfig | { style_id: string; density_scale: number; intensity_scale: number } | null;
+  scheduleBusy: boolean;
+  onScheduleStyleChange: (styleId: string) => void;
+  onScheduleDensityChange: (value: number) => void;
+  onScheduleIntensityChange: (value: number) => void;
+  onApplyScheduleStyle: () => void;
+  onResetScheduleStyle: () => void;
   autonomyBusy: boolean;
   onStartAutonomy: () => void;
   onStopAutonomy: () => void;
 }) {
+  const styles = schedule?.available_styles ?? [];
+  const styleChanged =
+    !!scheduleDraft &&
+    !!schedule &&
+    (scheduleDraft.style_id !== schedule.config.style_id ||
+      Math.abs(scheduleDraft.density_scale - schedule.config.density_scale) > 0.001 ||
+      Math.abs(scheduleDraft.intensity_scale - schedule.config.intensity_scale) > 0.001);
+
   return (
     <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
       <div className="rounded-[30px] border border-white/10 bg-black/25 p-6">
@@ -80,6 +104,65 @@ export function TrackInfoPanel({
                 : "The phrase scheduler appears after analysis is available for the selected track."
             }
           />
+          {schedule ? (
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-white">Song Style</p>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Pick a song-wide dance character, then shape how dense and intense the scheduler should feel.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="ghost" disabled={!styleChanged || scheduleBusy} onClick={onResetScheduleStyle}>
+                    Reset
+                  </Button>
+                  <Button disabled={!styleChanged || scheduleBusy} onClick={onApplyScheduleStyle}>
+                    {scheduleBusy ? "Applying..." : "Apply Style"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                {styles.map((style) => {
+                  const active = scheduleDraft?.style_id === style.style_id;
+                  return (
+                    <button
+                      key={style.style_id}
+                      type="button"
+                      onClick={() => onScheduleStyleChange(style.style_id)}
+                      className={`rounded-full border px-4 py-2 text-sm transition ${
+                        active
+                          ? "border-primary bg-primary/20 text-white"
+                          : "border-white/10 bg-black/20 text-slate-300 hover:border-primary/40 hover:text-white"
+                      }`}
+                    >
+                      {style.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-5 grid gap-5 md:grid-cols-2">
+                <StyleSlider
+                  label="Phrase Density"
+                  value={scheduleDraft?.density_scale ?? schedule.config.density_scale}
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  onChange={onScheduleDensityChange}
+                />
+                <StyleSlider
+                  label="Phrase Intensity"
+                  value={scheduleDraft?.intensity_scale ?? schedule.config.intensity_scale}
+                  min={0.5}
+                  max={1.5}
+                  step={0.05}
+                  onChange={onScheduleIntensityChange}
+                />
+              </div>
+            </div>
+          ) : null}
           <Banner
             title={`Autonomy ${autonomy.status}`}
             note={autonomy.note ?? "Autonomous playback is idle."}
@@ -127,6 +210,32 @@ function InfoTile({ label, value }: { label: string; value: string }) {
     <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
       <p className="hud-label">{label}</p>
       <p className="mt-3 text-xl font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function StyleSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="rounded-[20px] border border-white/10 bg-black/20 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium text-white">{label}</p>
+        <span className="text-sm text-slate-400">{value.toFixed(2)}</span>
+      </div>
+      <Slider className="mt-4" value={[value]} min={min} max={max} step={step} onValueChange={([next]) => onChange(next ?? value)} />
     </div>
   );
 }
