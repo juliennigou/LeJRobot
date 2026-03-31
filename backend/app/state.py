@@ -117,6 +117,7 @@ class RobotStateStore:
         self.sync_quality = 92
         self.started_at = monotonic()
         self.last_tick = monotonic()
+        self.last_external_transport_sync = 0.0
         self.scene = SceneName.IDLE
         self.known_tracks: dict[tuple[TrackSource, str], TrackSummary] = {}
         self.analysis_statuses: dict[tuple[TrackSource, str], AnalysisStatusResponse] = {}
@@ -148,14 +149,19 @@ class RobotStateStore:
             self.transport.playing = False
             self.mode = DanceMode.IDLE
 
-        if self.transport.playing:
+        external_clock_recent = (
+            self.transport.current_track is not None
+            and (now - self.last_external_transport_sync) < 0.6
+        )
+
+        if self.transport.playing and not external_clock_recent:
             self.transport.position_seconds += delta
 
         analysis = self.current_analysis()
         choreography = self.current_choreography()
         schedule = self.current_schedule()
         self._sync_transport_from_analysis(analysis)
-        if self.mode == DanceMode.AUTONOMOUS:
+        if self.mode == DanceMode.AUTONOMOUS and self.transport.playing:
             self._tick_autonomous_schedule(schedule, analysis.duration_seconds if analysis is not None else None)
 
         beat = self.transport.position_seconds * max(self.transport.bpm, 1) / 60.0
@@ -305,9 +311,28 @@ class RobotStateStore:
         self.transport.track_name = payload.track_name
         self.transport.bpm = max(40, min(220, int(round(payload.bpm))))
         self.transport.energy = max(0.0, min(1.0, payload.energy))
-        self.transport.playing = False if self.arm_adapter.emergency_stop_active() else payload.playing
+        if payload.position_seconds is not None:
+            self.transport.position_seconds = payload.position_seconds
+            self.last_external_transport_sync = monotonic()
+        requested_playing = False if self.arm_adapter.emergency_stop_active() else payload.playing
+        was_playing = self.transport.playing
+        self.transport.playing = requested_playing
         if self.transport.playing and self.mode == DanceMode.IDLE:
             self.mode = DanceMode.AUTONOMOUS
+        if self.mode == DanceMode.AUTONOMOUS:
+            if was_playing and not self.transport.playing:
+                self.arm_adapter.stop_movement()
+                self.autonomy.status = AutonomyStatus.ARMED
+                self.autonomy.active_phrase_id = None
+                self.autonomy.current_phrase = None
+                self.autonomy.note = "Autonomous playback paused with the song transport."
+                self.autonomy.last_transition_at = datetime.now(UTC).isoformat()
+            elif not was_playing and self.transport.playing:
+                self.autonomy.status = AutonomyStatus.ARMED
+                self.autonomy.active_phrase_id = None
+                self.autonomy.current_phrase = None
+                self.autonomy.note = "Autonomous playback resumed from the current song position."
+                self.autonomy.last_transition_at = datetime.now(UTC).isoformat()
         return self.snapshot()
 
     def apply_scene(self, scene: SceneName) -> RobotState:

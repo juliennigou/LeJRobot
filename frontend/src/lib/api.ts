@@ -159,6 +159,7 @@ export function setTransport(payload: {
   bpm: number;
   energy: number;
   playing: boolean;
+  position_seconds?: number;
 }) {
   return request<RobotState>("/api/transport", {
     method: "POST",
