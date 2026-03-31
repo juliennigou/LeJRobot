@@ -1,0 +1,266 @@
+import { Activity, Hand, Loader2, Play, Square, Waves } from "lucide-react";
+
+import type { ArmAdapterState, MovementLibraryState } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+
+const JOINT_GUIDE = [
+  { name: "Shoulder Pan", role: "Sweeps the whole arm left and right." },
+  { name: "Shoulder Lift", role: "Raises or lowers the arm to set the main silhouette." },
+  { name: "Elbow Flex", role: "Creates bend, reach, and expressive folding." },
+  { name: "Wrist Flex", role: "Adds hand pitch and soft finishing accents." },
+  { name: "Wrist Roll", role: "Rotates the hand for wave, twist, and flourish motions." },
+  { name: "Gripper", role: "Keeps the hand open or adds small accent gestures." },
+];
+
+function titleize(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function armReady(arm: ArmAdapterState) {
+  return arm.connected && arm.telemetry_live && !arm.safety.dry_run && arm.safety.torque_enabled && !arm.safety.emergency_stop;
+}
+
+export function MovementLibraryPage({
+  library,
+  arms,
+  selectedArmId,
+  busyAction,
+  onSelectArm,
+  onRunMovement,
+  onStopMovement,
+}: {
+  library: MovementLibraryState | null;
+  arms: ArmAdapterState[];
+  selectedArmId: string | null;
+  busyAction: string | null;
+  onSelectArm: (armId: string) => void;
+  onRunMovement: (movementId: string) => void;
+  onStopMovement: () => void;
+}) {
+  const active = library?.active ?? {
+    status: "idle" as const,
+    progress: 0,
+  };
+  const selectedArm = arms.find((arm) => arm.arm_id === selectedArmId) ?? null;
+
+  return (
+    <section className="grid gap-6">
+      <Card className="border-white/10 bg-white/[0.04]">
+        <CardHeader className="gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge>Movement Library</Badge>
+            <Badge variant="accent">First Live Motion Path</Badge>
+            <Badge variant="muted">{active.status === "running" ? "Movement Running" : "Ready"}</Badge>
+          </div>
+          <CardTitle className="text-3xl text-white">Single-Arm Movement Studio</CardTitle>
+          <CardDescription className="max-w-3xl text-slate-300">
+            Start with a library of explicit arm motions before binding everything to music. The first movement is a
+            calibrated `wave` that uses the shoulder, elbow, and wrist chain to create a readable greeting gesture.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card className="border-white/10 bg-white/[0.04]">
+          <CardHeader>
+            <CardTitle className="text-white">Arm Selection</CardTitle>
+            <CardDescription className="text-slate-300">
+              Choose the arm that should execute the movement. Live execution requires connection, torque enabled,
+              and dry run disabled.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            {arms.map((arm) => {
+              const selected = arm.arm_id === selectedArmId;
+              const ready = armReady(arm);
+              return (
+                <button
+                  key={arm.arm_id}
+                  className={`rounded-[24px] border p-4 text-left transition ${
+                    selected
+                      ? "border-primary/40 bg-primary/10 shadow-[0_16px_40px_rgba(12,74,162,0.18)]"
+                      : "border-white/10 bg-black/20 hover:border-white/20"
+                  }`}
+                  onClick={() => onSelectArm(arm.arm_id)}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge>{titleize(arm.arm_type)}</Badge>
+                    <Badge variant="muted">{arm.arm_id}</Badge>
+                    <Badge variant={ready ? "accent" : "muted"}>{ready ? "Live Ready" : "Not Ready"}</Badge>
+                  </div>
+                  <p className="mt-4 text-sm text-slate-300">
+                    {ready
+                      ? "Connected, torque enabled, and ready to execute a bounded movement."
+                      : arm.notes ?? "Adjust safety state before running a movement."}
+                  </p>
+                </button>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card className="border-white/10 bg-white/[0.04]">
+          <CardHeader>
+            <CardTitle className="text-white">6 Joint Roles</CardTitle>
+            <CardDescription className="text-slate-300">
+              These are the movement families we will compose into a reusable library.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {JOINT_GUIDE.map((joint) => (
+              <div key={joint.name} className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
+                <p className="text-sm font-semibold text-white">{joint.name}</p>
+                <p className="mt-1 text-sm text-slate-400">{joint.role}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Card className="border-white/10 bg-white/[0.04]">
+          <CardHeader>
+            <CardTitle className="text-white">Available Movements</CardTitle>
+            <CardDescription className="text-slate-300">
+              Movements are explicit keyframed gestures. For now we start with one: `wave`.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {(library?.movements ?? []).map((movement) => {
+              const canRun = !!selectedArm && armReady(selectedArm) && active.status !== "running";
+              const isRunning = active.status === "running" && active.movement_id === movement.movement_id;
+
+              return (
+                <div
+                  key={movement.movement_id}
+                  className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,19,34,0.95),rgba(6,11,20,0.98))] p-5"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="max-w-2xl">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Badge>{movement.name}</Badge>
+                        <Badge variant="muted">{movement.duration_seconds.toFixed(1)}s</Badge>
+                        <Badge variant="accent">{movement.recommended_arm ?? "follower"}</Badge>
+                      </div>
+                      <p className="mt-4 text-base font-semibold text-white">{movement.summary}</p>
+                      <p className="mt-2 text-sm text-slate-400">{movement.description}</p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        variant="secondary"
+                        disabled={!canRun || busyAction !== null}
+                        onClick={() => onRunMovement(movement.movement_id)}
+                      >
+                        {busyAction === `run:${movement.movement_id}` ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Play className="mr-2 h-4 w-4" />
+                        )}
+                        {isRunning ? "Running..." : "Run Movement"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={active.status !== "running" || busyAction !== null}
+                        onClick={onStopMovement}
+                      >
+                        {busyAction === "stop-movement" ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Square className="mr-2 h-4 w-4" />
+                        )}
+                        Stop
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {movement.focus_joints.map((joint) => (
+                      <Badge key={joint} variant="muted">
+                        {titleize(joint)}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card className="border-white/10 bg-white/[0.04]">
+          <CardHeader>
+            <CardTitle className="text-white">Live Movement State</CardTitle>
+            <CardDescription className="text-slate-300">
+              Progress of the currently selected manual movement.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge>{active.movement_id ?? "No movement"}</Badge>
+                <Badge variant={active.status === "running" ? "accent" : "muted"}>{active.status}</Badge>
+                {active.arm_id ? <Badge variant="muted">{active.arm_id}</Badge> : null}
+              </div>
+              <p className="mt-4 text-sm text-slate-300">{active.note ?? "Pick an arm and run a movement."}</p>
+              <div className="mt-5">
+                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.24em] text-slate-500">
+                  <span>Progress</span>
+                  <span>{Math.round((active.progress ?? 0) * 100)}%</span>
+                </div>
+                <Progress value={(active.progress ?? 0) * 100} className="h-2.5 bg-white/5" />
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              <MotionHint
+                icon={Waves}
+                title="Wave Anatomy"
+                description="Shoulder lift raises the arm, elbow flex folds it, and wrist roll creates the visible waving motion."
+              />
+              <MotionHint
+                icon={Hand}
+                title="Safety Envelope"
+                description="The backend still applies dry-run checks, torque checks, emergency-stop, and per-joint step limits before each live write."
+              />
+              <MotionHint
+                icon={Activity}
+                title="Next Library Steps"
+                description="After wave, we can add punch, bloom, sweep, point, and idle-loop gestures with the same keyframe structure."
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+function MotionHint({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: typeof Waves;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[20px] border border-white/10 bg-black/20 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-white">{title}</p>
+          <p className="mt-1 text-sm text-slate-400">{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}

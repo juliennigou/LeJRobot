@@ -24,14 +24,14 @@ The delivery sequence is:
 - `#20` Dockerize frontend and backend with docker compose startup
 - `#29` Verify live SO-101 connection and calibration loading for both arms [done]
 - `#31` Implement real dual-arm SO-101 hardware bridge and telemetry [done]
-- `#30` Enforce live safety supervisor for torque, neutral, emergency stop, and step limits
+- `#30` Enforce live safety supervisor for torque, neutral, emergency stop, and step limits [done]
 - `#32` Add manual hardware validation controls and status surfaces [done]
 - `#38` Add live 2D dual-arm visualizer to robot dashboard [done]
 - `#34` Execute choreography on one live SO-101 arm
 - `#33` Run synchronized dual-arm choreography playback on leader + follower
 
 ## Current Status
-- Current PR target: `#30`
+- Current PR target: `#34`
 - Current backend state:
   - Search and track selection exist
   - Local upload and persistent local track metadata are available
@@ -44,7 +44,8 @@ The delivery sequence is:
   - `#31` now opens real read-only LeRobot/Feetech sessions for leader + follower and exposes live joint telemetry in `/api/state` and `/api/arms`
   - Active bus sessions are now distinct from verification-ready state; `connected=true` means a live telemetry session is open
   - The backend now requires `feetech-servo-sdk` for real SO-101 telemetry through LeRobot
-  - `#30` is wiring torque on/off, neutral moves, emergency stop, emergency reset, and live joint step limiting through the real Feetech write path
+  - `#30` now enforces torque on/off, neutral moves, emergency stop, emergency reset, and live joint step limiting through the real Feetech write path
+  - `#34` now adds a movement library abstraction and a first executable `wave` movement for one live arm
 - Current frontend state:
   - Home page is music-first
   - Search/select flow exists
@@ -54,8 +55,9 @@ The delivery sequence is:
   - Hardware dashboard now separates verification-ready state from active telemetry state
   - Robot dashboard now shows real per-arm telemetry once a live connection is opened
   - `#38` added a responsive side-by-side 2D visualizer so both arms can be seen moving from live telemetry
-  - `#30` is wiring dashboard controls for dry-run, torque, neutral, and emergency-stop management
-  - Live choreography execution is not implemented yet, but the adapter can now issue bounded safety writes for torque, neutral, and emergency-stop handling
+  - `#30` added dashboard controls for dry-run, torque, neutral, and emergency-stop management
+  - `#34` adds a dedicated Movement Library page with arm selection and run/stop controls for the first live gesture
+  - Music-driven choreography execution is not implemented yet, but the app can now execute a bounded library gesture on one live arm
 
 ## Workflow Rule
 - Each ticket must ship from a feature branch through a pull request.

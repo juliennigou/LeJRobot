@@ -5,14 +5,17 @@ import {
   fetchAnalysis,
   fetchAnalysisStatus,
   fetchChoreography,
+  fetchMovementLibrary,
   fetchState,
   moveArmsToNeutral,
+  runMovement,
   resetEmergencyStop,
   searchTracks,
   setArmConnection,
   selectTrack,
   setTransport,
   startAnalysis,
+  stopMovement,
   triggerEmergencyStop,
   updateArmSafety,
   uploadTrack,
@@ -32,6 +35,7 @@ import { TrackInfoPanel } from "@/components/analysis/track-info-panel";
 import { HardwareStatusDashboard } from "@/components/hardware/hardware-status-dashboard";
 import { AppNavbar, type AppView } from "@/components/layout/app-navbar";
 import { WaveformConsole } from "@/components/music/waveform-console";
+import { MovementLibraryPage } from "@/components/movements/movement-library-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +66,8 @@ function App() {
   const [verifyingHardware, setVerifyingHardware] = useState(false);
   const [hardwareBusyArmId, setHardwareBusyArmId] = useState<string | null>(null);
   const [hardwareActionBusy, setHardwareActionBusy] = useState<string | null>(null);
+  const [selectedMovementArmId, setSelectedMovementArmId] = useState<string | null>(null);
+  const [movementBusyAction, setMovementBusyAction] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshState = async () => {
@@ -157,7 +163,7 @@ function App() {
 
   useEffect(() => {
     const boot = async () => {
-      await Promise.all([refreshState(), runSearch(searchQuery), loadLocalTracks()]);
+      await Promise.all([refreshState(), runSearch(searchQuery), loadLocalTracks(), fetchMovementLibrary()]);
     };
 
     void boot();
@@ -169,6 +175,7 @@ function App() {
   }, []);
 
   const currentTrack = state?.transport.current_track ?? null;
+  const movementLibrary = state?.movement_library ?? null;
 
   useEffect(() => {
     if (!currentTrack) {
@@ -360,6 +367,53 @@ function App() {
     [],
   );
 
+  useEffect(() => {
+    if (selectedMovementArmId) {
+      return;
+    }
+
+    const follower = state?.dual_arm.arms.find((arm) => arm.arm_type === "follower");
+    const firstArm = state?.dual_arm.arms[0];
+    const defaultArm = follower ?? firstArm;
+    if (defaultArm) {
+      setSelectedMovementArmId(defaultArm.arm_id);
+    }
+  }, [selectedMovementArmId, state?.dual_arm.arms]);
+
+  const handleRunMovement = useCallback(
+    async (movementId: string) => {
+      if (!selectedMovementArmId) {
+        setError("Select an arm before running a movement.");
+        return;
+      }
+
+      setMovementBusyAction(`run:${movementId}`);
+      try {
+        await runMovement(selectedMovementArmId, movementId);
+        await refreshState();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to run movement");
+      } finally {
+        setMovementBusyAction(null);
+      }
+    },
+    [selectedMovementArmId],
+  );
+
+  const handleStopMovement = useCallback(async () => {
+    setMovementBusyAction("stop-movement");
+    try {
+      await stopMovement();
+      await refreshState();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to stop movement");
+    } finally {
+      setMovementBusyAction(null);
+    }
+  }, []);
+
   const searchDropdownResults = useMemo(() => {
     const deduped = new Map<string, TrackSummary>();
     [...localTracks, ...searchResults].forEach((track) => {
@@ -546,6 +600,18 @@ function App() {
               </Tabs>
             </CardContent>
           </Card>
+        ) : null}
+
+        {activeView === "movements" ? (
+          <MovementLibraryPage
+            library={movementLibrary}
+            arms={state?.dual_arm.arms ?? []}
+            selectedArmId={selectedMovementArmId}
+            busyAction={movementBusyAction}
+            onSelectArm={setSelectedMovementArmId}
+            onRunMovement={(movementId) => void handleRunMovement(movementId)}
+            onStopMovement={() => void handleStopMovement()}
+          />
         ) : null}
 
         {activeView === "robot" ? (

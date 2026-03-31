@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import math
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -299,6 +300,43 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertAlmostEqual(follower_goals["shoulder_pan"], 0.0, places=1)
         self.assertAlmostEqual(follower_goals["shoulder_lift"], -12.0, places=1)
         self.assertAlmostEqual(follower_goals["elbow_flex"], 18.0, places=1)
+
+        movements = self.client.get("/api/movements")
+        self.assertEqual(movements.status_code, 200)
+        movement_payload = movements.json()
+        self.assertTrue(any(item["movement_id"] == "wave" for item in movement_payload["movements"]))
+        self.assertEqual(movement_payload["active"]["status"], "idle")
+
+        run_wave = self.client.post(
+            "/api/movements/run",
+            json={"movement_id": "wave", "arm_id": "test_follower"},
+        )
+        self.assertEqual(run_wave.status_code, 200)
+        self.assertEqual(run_wave.json()["active"]["status"], "running")
+
+        completed = None
+        for _ in range(140):
+            snapshot = self.client.get("/api/movements")
+            self.assertEqual(snapshot.status_code, 200)
+            active = snapshot.json()["active"]
+            if active["status"] == "completed":
+                completed = active
+                break
+            time.sleep(0.05)
+
+        self.assertIsNotNone(completed)
+        self.assertEqual(completed["movement_id"], "wave")
+        self.assertEqual(completed["arm_id"], "test_follower")
+        self.assertGreaterEqual(completed["progress"], 1.0)
+
+        rerun_wave = self.client.post(
+            "/api/movements/run",
+            json={"movement_id": "wave", "arm_id": "test_follower"},
+        )
+        self.assertEqual(rerun_wave.status_code, 200)
+        stop_wave = self.client.post("/api/movements/stop")
+        self.assertEqual(stop_wave.status_code, 200)
+        self.assertIn(stop_wave.json()["active"]["status"], {"stopped", "completed"})
 
         cache_files = list((Path(self.tempdir.name) / "analysis-cache" / "json" / "local").glob("*.json"))
         self.assertTrue(cache_files)

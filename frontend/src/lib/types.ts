@@ -9,6 +9,7 @@ export type SymmetryRole = "lead" | "follow" | "mirror" | "unison" | "contrast";
 export type ArmType = "follower" | "leader";
 export type ArmChannel = "left" | "right";
 export type ExecutionMode = "mirror" | "unison" | "call_response" | "asymmetric";
+export type MovementStatus = "idle" | "running" | "completed" | "stopped" | "error";
 export type ArmVerificationStatus =
   | "idle"
   | "ready"
@@ -237,6 +238,32 @@ export interface DualArmState {
   execution: DualArmExecutionState;
 }
 
+export interface MovementDefinition {
+  movement_id: string;
+  name: string;
+  summary: string;
+  description: string;
+  duration_seconds: number;
+  focus_joints: string[];
+  recommended_arm?: ArmType | null;
+}
+
+export interface MovementRunState {
+  status: MovementStatus;
+  movement_id?: string | null;
+  arm_id?: string | null;
+  arm_type?: ArmType | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  note?: string | null;
+  progress: number;
+}
+
+export interface MovementLibraryState {
+  movements: MovementDefinition[];
+  active: MovementRunState;
+}
+
 export interface RobotState {
   connected: boolean;
   status: string;
@@ -253,4 +280,5 @@ export interface RobotState {
   spectrum: number[];
   servos: ServoState[];
   dual_arm: DualArmState;
+  movement_library: MovementLibraryState;
 }
