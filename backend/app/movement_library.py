@@ -13,41 +13,41 @@ from .models import (
 )
 
 WAVE_NEUTRAL_POSE = {
-    "shoulder_pan": 14.0,
-    "shoulder_lift": -36.0,
-    "elbow_flex": -10.0,
-    "wrist_flex": 16.0,
-    "wrist_roll": 4.0,
+    "shoulder_pan": 3.06,
+    "shoulder_lift": 12.65,
+    "elbow_flex": -25.38,
+    "wrist_flex": 27.72,
+    "wrist_roll": 7.99,
     "gripper": 8.0,
 }
 
 
 def _wave_profiles(scale: float) -> list[MovementJointProfile]:
     return [
-        MovementJointProfile(joint_name="shoulder_pan", base_angle=14.0, amplitude=3.0 * scale, phase_delay_radians=0.0),
+        MovementJointProfile(joint_name="shoulder_pan", base_angle=3.06, amplitude=0.99 * scale, phase_delay_radians=0.0),
         MovementJointProfile(
             joint_name="shoulder_lift",
-            base_angle=-36.0,
-            amplitude=4.8 * scale,
-            phase_delay_radians=0.24,
+            base_angle=12.65,
+            amplitude=5.85 * scale,
+            phase_delay_radians=0.28,
         ),
         MovementJointProfile(
             joint_name="elbow_flex",
-            base_angle=-10.0,
-            amplitude=9.0 * scale,
-            phase_delay_radians=0.56,
+            base_angle=-25.38,
+            amplitude=4.02 * scale,
+            phase_delay_radians=0.64,
         ),
         MovementJointProfile(
             joint_name="wrist_flex",
-            base_angle=16.0,
-            amplitude=16.5 * scale,
-            phase_delay_radians=0.94,
+            base_angle=27.72,
+            amplitude=4.67 * scale,
+            phase_delay_radians=1.02,
         ),
         MovementJointProfile(
             joint_name="wrist_roll",
-            base_angle=4.0,
-            amplitude=20.0 * scale,
-            phase_delay_radians=1.22,
+            base_angle=7.99,
+            amplitude=1.81 * scale,
+            phase_delay_radians=1.46,
         ),
     ]
 
@@ -67,12 +67,12 @@ WAVE_PRESETS = {
     "normal": MovementPreset(
         preset_id="normal",
         label="Normal",
-        summary="Balanced dance wave with modest shoulder lead, clear elbow follow, and strong wrist signature.",
-        frequency_hz=0.9,
-        cycles=4,
+        summary="Wave preset fitted from the latest recorded take, regularized into a clean shoulder-to-wrist phase chain.",
+        frequency_hz=0.252,
+        cycles=2,
         amplitude_scale=1.0,
         softness=0.72,
-        asymmetry=0.16,
+        asymmetry=0.0,
         joint_profiles=_wave_profiles(1.0),
     ),
     "exaggerated": MovementPreset(

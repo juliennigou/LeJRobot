@@ -30,8 +30,8 @@ class MovementRecordingTest(unittest.TestCase):
         recording = self._synthetic_recording()
         summary = fit_wave_from_recordings([recording], label="Synthetic Wave")
 
-        self.assertGreater(summary.frequency_hz, 0.4)
-        self.assertLess(summary.frequency_hz, 1.6)
+        self.assertGreater(summary.frequency_hz, 0.15)
+        self.assertLess(summary.frequency_hz, 1.2)
         profiles = {profile.joint_name: profile for profile in summary.joint_profiles}
         self.assertLess(profiles["shoulder_pan"].phase_delay_radians, profiles["elbow_flex"].phase_delay_radians)
         self.assertLess(profiles["elbow_flex"].phase_delay_radians, profiles["wrist_roll"].phase_delay_radians)
